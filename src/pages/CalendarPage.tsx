@@ -169,17 +169,17 @@ export default function CalendarPage() {
 
         {/* Actions */}
         {canEdit && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             <button
               onClick={() => setShowIngestor(!showIngestor)}
-              className="btn-secondary"
+              className="btn-secondary flex-1 sm:flex-initial justify-center"
               id="btn-open-ingestor"
             >
               <Package size={16} /> Importar Albarán
             </button>
             <button
               onClick={() => { setSelectedDelivery(null); setModalDate(''); setShowModal(true) }}
-              className="btn-primary"
+              className="btn-primary flex-1 sm:flex-initial justify-center"
               id="btn-new-delivery"
             >
               <Plus size={16} /> Nueva Descarga

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Plus, Shield, Users, Activity, RefreshCw, Edit2, Trash2, X, Check, Eye, EyeOff } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, createUserWithoutSession } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import type { Profile, AuditLog, UserRole } from '@/types'
 import toast from 'react-hot-toast'
@@ -322,40 +322,50 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
   const isNew = !user
 
   const handleSave = async () => {
-    if (!nombre || !email) { toast.error('Nombre y email son obligatorios'); return }
+    if (!nombre.trim() || !email.trim()) {
+      toast.error('Nombre y email son obligatorios')
+      return
+    }
 
     setSaving(true)
 
     if (isNew) {
-      if (!password) { toast.error('La contraseña es obligatoria para nuevos usuarios'); setSaving(false); return }
+      if (!password || password.length < 6) {
+        toast.error('La contraseña debe tener al menos 6 caracteres')
+        setSaving(false)
+        return
+      }
 
-      // Create user via Supabase Admin (requires service role key for production)
-      // In this implementation we use the standard signup
-      const { data, error } = await supabase.auth.admin?.createUser({
-        email,
+      const res = await createUserWithoutSession({
+        email: email.trim(),
         password,
-        email_confirm: true,
-        user_metadata: { nombre_completo: nombre, cargo, rol },
-      }) || { data: null, error: { message: 'admin.createUser not available — use Supabase Dashboard' } }
+        nombreCompleto: nombre.trim(),
+        cargo: cargo.trim(),
+        rol,
+      })
 
-      if (error) {
-        // Fallback: Try regular sign-up
-        toast.error(`Para crear usuarios, usa Supabase Dashboard > Authentication > Users`)
+      if (!res.success) {
+        toast.error(res.error || 'Error al crear el usuario')
       } else {
-        // Update profile
-        if (data?.user) {
-          await supabase.from('profiles').update({ nombre_completo: nombre, cargo, rol }).eq('id', data.user.id)
-        }
-        toast.success('Usuario creado')
+        toast.success('¡Usuario creado correctamente y listo para iniciar sesión!')
         onSaved()
       }
     } else {
       const { error } = await supabase
         .from('profiles')
-        .update({ nombre_completo: nombre, cargo, rol })
+        .update({
+          nombre_completo: nombre.trim(),
+          cargo: cargo.trim(),
+          rol,
+        })
         .eq('id', user.id)
-      if (error) toast.error(error.message)
-      else { toast.success('Usuario actualizado'); onSaved() }
+
+      if (error) {
+        toast.error(error.message)
+      } else {
+        toast.success('Usuario actualizado correctamente')
+        onSaved()
+      }
     }
     setSaving(false)
   }
@@ -370,44 +380,79 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
         <div className="modal-body space-y-4">
           <div className="form-group">
             <label className="form-label">Nombre completo *</label>
-            <input type="text" className="form-input" value={nombre} onChange={(e) => setNombre(e.target.value)} id="user-nombre" />
+            <input
+              type="text"
+              className="form-input"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Ej: Carlos Gómez"
+              id="user-nombre"
+            />
           </div>
           <div className="form-group">
-            <label className="form-label">Email *</label>
-            <input type="email" className="form-input" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!isNew} id="user-email" />
+            <label className="form-label">Email corporativo *</label>
+            <input
+              type="email"
+              className="form-input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={!isNew}
+              placeholder="carlos@garde.es"
+              id="user-email"
+            />
           </div>
           {isNew && (
             <div className="form-group">
-              <label className="form-label">Contraseña *</label>
+              <label className="form-label">Contraseña de acceso *</label>
               <div className="relative">
                 <input
                   type={showPass ? 'text' : 'password'}
                   className="form-input pr-10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
                   id="user-password"
                 />
-                <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500">
+                <button
+                  type="button"
+                  onClick={() => setShowPass(!showPass)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300"
+                >
                   {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>
           )}
           <div className="form-group">
-            <label className="form-label">Cargo</label>
-            <input type="text" className="form-input" value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Ej: Jefe de Compras" id="user-cargo" />
+            <label className="form-label">Cargo / Puesto</label>
+            <input
+              type="text"
+              className="form-input"
+              value={cargo}
+              onChange={(e) => setCargo(e.target.value)}
+              placeholder="Ej: Responsable de Compras / Comercial Norte"
+              id="user-cargo"
+            />
           </div>
           <div className="form-group">
-            <label className="form-label">Rol del sistema</label>
-            <select className="form-select" value={rol} onChange={(e) => setRol(e.target.value as UserRole)} id="user-rol">
-              {ROLES.map((r) => <option key={r}>{r}</option>)}
+            <label className="form-label">Rol del sistema *</label>
+            <select
+              className="form-select"
+              value={rol}
+              onChange={(e) => setRol(e.target.value as UserRole)}
+              id="user-rol"
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
             </select>
           </div>
 
           {isNew && (
-            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-xs text-yellow-300">
-              <strong>Nota:</strong> La creación de usuarios requiere la Service Role Key de Supabase.
-              En producción, crea usuarios desde el Dashboard de Supabase y asigna su rol aquí.
+            <div className="p-3 bg-brand-500/10 border border-brand-500/20 rounded-lg text-xs text-brand-300">
+              💡 <strong>Creación instantánea:</strong> El usuario quedará habilitado de inmediato y podrá acceder con su email y contraseña sin pasos adicionales.
             </div>
           )}
         </div>
@@ -415,7 +460,7 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
           <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
           <button onClick={handleSave} disabled={saving} className="btn-primary" id="user-save">
             {saving && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-            {saving ? 'Guardando...' : isNew ? 'Crear Usuario' : 'Guardar'}
+            {saving ? 'Guardando...' : isNew ? 'Crear Usuario' : 'Guardar Cambios'}
           </button>
         </div>
       </div>

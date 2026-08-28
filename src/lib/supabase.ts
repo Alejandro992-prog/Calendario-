@@ -48,3 +48,65 @@ export async function uploadFile(
   }
   return data.path
 }
+
+// Utility: Create user from admin dashboard without disturbing current session
+export async function createUserWithoutSession({
+  email,
+  password,
+  nombreCompleto,
+  cargo,
+  rol,
+}: {
+  email: string
+  password: string
+  nombreCompleto: string
+  cargo?: string
+  rol: 'Administrador' | 'Compras' | 'Comercial'
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Ephemeral client with no session persistence
+    const tempClient = createClient(
+      supabaseUrl || 'https://placeholder.supabase.co',
+      supabaseAnonKey || 'placeholder-key',
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }
+    )
+
+    const { data, error } = await tempClient.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          nombre_completo: nombreCompleto,
+          cargo: cargo || '',
+          rol,
+        },
+      },
+    })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    if (data.user) {
+      // Ensure profile is updated with the assigned role in case of default trigger fallback
+      await supabase
+        .from('profiles')
+        .update({
+          nombre_completo: nombreCompleto,
+          cargo: cargo || '',
+          rol,
+        })
+        .eq('id', data.user.id)
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al crear usuario' }
+  }
+}
