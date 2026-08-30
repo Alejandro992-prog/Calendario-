@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, Filter, TrendingDown, ExternalLink, RefreshCw } from 'lucide-react'
+import { Plus, Search, Filter, TrendingDown, ExternalLink, RefreshCw, Trash2 } from 'lucide-react'
 import { supabase, getSignedUrl } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import type { PriceAlert } from '@/types'
@@ -28,6 +28,17 @@ export default function PriceAlertsPage() {
     if (error) toast.error('Error al cargar alertas')
     setAlerts((data || []) as PriceAlert[])
     setLoading(false)
+  }
+
+  const deleteAlert = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm('¿Seguro que deseas eliminar esta alerta de precio?')) return
+    const { error } = await supabase.from('price_alerts').delete().eq('id', id)
+    if (error) toast.error(`Error al eliminar: ${error.message}`)
+    else {
+      toast.success('Alerta de precio eliminada')
+      loadAlerts()
+    }
   }
 
   const competitors = [...new Set(alerts.map((a) => a.competidor).filter(Boolean))]
@@ -165,6 +176,7 @@ export default function PriceAlertsPage() {
                 <th>Captura</th>
                 <th>Reportado por</th>
                 <th>Fecha</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -172,6 +184,8 @@ export default function PriceAlertsPage() {
                 const diff = a.precio_detectado && a.precio_nuestro
                   ? ((a.precio_nuestro - a.precio_detectado) / a.precio_nuestro * 100)
                   : null
+                const canDelete = profile?.rol === 'Administrador' || profile?.rol === 'Compras' || profile?.id === a.reportado_por
+
                 return (
                   <tr key={a.id}>
                     <td className="font-mono text-brand-400 font-semibold">{a.modelo}</td>
@@ -212,6 +226,17 @@ export default function PriceAlertsPage() {
                     </td>
                     <td className="text-xs text-surface-400">
                       {format(new Date(a.created_at), 'dd/MM/yyyy', { locale: es })}
+                    </td>
+                    <td>
+                      {canDelete && (
+                        <button
+                          onClick={(e) => deleteAlert(a.id, e)}
+                          className="p-1.5 text-surface-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Eliminar alerta"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )

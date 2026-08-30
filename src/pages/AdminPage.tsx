@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server } from 'lucide-react'
+import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server, Search, Filter, Trash2, ArrowRight } from 'lucide-react'
 import { supabase, createUserWithoutSession } from '@/lib/supabase'
 import { generateFullBackup, downloadBackupFile } from '@/lib/backup'
 import { useAuthStore } from '@/store/authStore'
@@ -18,10 +18,20 @@ const roleColors: Record<UserRole, string> = {
   Comercial: 'badge bg-green-500/15 text-green-400 border border-green-500/20',
 }
 
-const auditColors: Record<string, string> = {
-  INSERT: 'text-green-400',
-  UPDATE: 'text-yellow-400',
-  DELETE: 'text-red-400',
+const auditColors: Record<string, { badge: string; text: string; label: string }> = {
+  INSERT: { badge: 'bg-green-500/15 text-green-400 border-green-500/20', text: 'text-green-400', label: 'Creación' },
+  UPDATE: { badge: 'bg-amber-500/15 text-amber-400 border-amber-500/20', text: 'text-amber-400', label: 'Modificación' },
+  DELETE: { badge: 'bg-red-500/15 text-red-400 border-red-500/20', text: 'text-red-400', label: 'Eliminación' },
+}
+
+const tableLabels: Record<string, { label: string; icon: string }> = {
+  stock_shortages: { label: 'Faltas de Stock', icon: '⚠️' },
+  deliveries: { label: 'Descargas / Camiones', icon: '🚚' },
+  delivery_items: { label: 'Artículos en Camión', icon: '📦' },
+  price_alerts: { label: 'Alertas de Precios', icon: '📉' },
+  shortage_comments: { label: 'Comentarios de Faltas', icon: '💬' },
+  profiles: { label: 'Usuarios / Perfiles', icon: '👤' },
+  suppliers: { label: 'Proveedores', icon: '🏢' },
 }
 
 export default function AdminPage() {
@@ -35,6 +45,11 @@ export default function AdminPage() {
   const [isExporting, setIsExporting] = useState(false)
   const [backupStats, setBackupStats] = useState<Record<string, number> | null>(null)
   const [loadingStats, setLoadingStats] = useState(false)
+  
+  // Audit filters
+  const [auditSearch, setAuditSearch] = useState('')
+  const [auditActionFilter, setAuditActionFilter] = useState('')
+  const [auditTableFilter, setAuditTableFilter] = useState('')
 
   useEffect(() => {
     if (tab === 'users') loadUsers()
@@ -290,71 +305,234 @@ export default function AdminPage() {
       )}
 
       {/* Audit tab */}
-      {tab === 'audit' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-surface-400">Últimos 100 eventos</p>
-            <button onClick={loadAudit} className="btn-ghost btn-icon btn-sm">
-              <RefreshCw size={14} />
-            </button>
-          </div>
+      {tab === 'audit' && (() => {
+        const filteredAudit = auditLogs.filter((log) => {
+          if (auditActionFilter && log.accion !== auditActionFilter) return false
+          if (auditTableFilter && log.tabla !== auditTableFilter) return false
+          if (auditSearch.trim()) {
+            const q = auditSearch.toLowerCase()
+            const userStr = `${log.user_nombre || ''} ${log.user_email || ''}`.toLowerCase()
+            const tableStr = (tableLabels[log.tabla]?.label || log.tabla).toLowerCase()
+            const dataStr = JSON.stringify(log.datos_despues || log.datos_antes || {}).toLowerCase()
+            return userStr.includes(q) || tableStr.includes(q) || dataStr.includes(q)
+          }
+          return true
+        })
 
-          <div className="table-wrapper">
-            {loading ? (
-              <div className="flex items-center justify-center h-48">
-                <div className="w-6 h-6 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
+        const getSummary = (log: AuditLog) => {
+          const data: any = log.datos_despues || log.datos_antes || {}
+          const prev: any = log.datos_antes || {}
+
+          switch (log.tabla) {
+            case 'stock_shortages': {
+              const cat = data.categoria || prev.categoria || 'Falta'
+              const mod = data.modelo || data.especificacion || prev.modelo || prev.especificacion || ''
+              const est = data.estado || prev.estado
+              if (log.accion === 'UPDATE' && prev.estado && data.estado && prev.estado !== data.estado) {
+                return `${cat} ${mod ? `(${mod})` : ''} ➔ Cambio de estado a "${data.estado}"`
+              }
+              return `${cat} ${mod ? `· ${mod}` : ''} ${est ? `(${est})` : ''}`
+            }
+            case 'deliveries': {
+              const ref = data.referencia || prev.referencia || 'Sin referencia'
+              const fecha = data.fecha_prevista || prev.fecha_prevista || ''
+              const est = data.estado || prev.estado || ''
+              if (log.accion === 'UPDATE' && prev.estado && data.estado && prev.estado !== data.estado) {
+                return `Descarga Ref: ${ref} ➔ Estado "${data.estado}"`
+              }
+              return `Descarga Ref: ${ref} · Fecha: ${fecha} (${est})`
+            }
+            case 'price_alerts': {
+              const mod = data.modelo || prev.modelo || 'Producto'
+              const comp = data.competidor || prev.competidor || ''
+              const prec = data.precio_detectado || prev.precio_detectado
+              return `Alerta: ${mod} · Competidor: ${comp} ${prec ? `(${prec} €)` : ''}`
+            }
+            case 'profiles': {
+              const nom = data.nombre_completo || prev.nombre_completo || 'Usuario'
+              const rol = data.rol || prev.rol || ''
+              if (log.accion === 'UPDATE' && prev.rol && data.rol && prev.rol !== data.rol) {
+                return `Usuario ${nom} ➔ Rol cambiado a "${data.rol}"`
+              }
+              return `Usuario: ${nom} (${rol})`
+            }
+            case 'shortage_comments': {
+              const cont = (data.contenido || prev.contenido || '').substring(0, 45)
+              return `Comentario: "${cont}${cont.length >= 45 ? '...' : ''}"`
+            }
+            case 'suppliers': {
+              const nom = data.nombre || prev.nombre || 'Proveedor'
+              return `Proveedor: ${nom}`
+            }
+            case 'delivery_items': {
+              const mod = data.modelo || prev.modelo || 'Artículo'
+              const cant = data.cantidad || prev.cantidad || 1
+              return `Línea: ${mod} (${cant} uds)`
+            }
+            default:
+              return `Registro ID #${log.registro_id || log.id}`
+          }
+        }
+
+        return (
+          <div className="space-y-4">
+            {/* Header info & filters */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-surface-100 flex items-center gap-2">
+                  <Activity size={18} className="text-brand-400" />
+                  Historial Completo de Operaciones
+                </h3>
+                <p className="text-xs text-surface-400">
+                  Mostrando {filteredAudit.length} de {auditLogs.length} eventos registrados (Solo visible para Administrador)
+                </p>
               </div>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Acción</th>
-                    <th>Tabla</th>
-                    <th>Usuario</th>
-                    <th>Fecha y hora</th>
-                    <th>Detalles</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td>
-                        <span className={`font-mono text-xs font-bold ${auditColors[log.accion] || 'text-surface-400'}`}>
-                          {log.accion}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="font-mono text-xs text-surface-400 bg-surface-700/50 px-1.5 py-0.5 rounded">
-                          {log.tabla}
-                        </span>
-                      </td>
-                      <td>
-                        <div>
-                          <p className="text-sm text-surface-200">{log.user_nombre || log.user_email || '—'}</p>
-                          <p className="text-xs text-surface-500">{log.user_email}</p>
-                        </div>
-                      </td>
-                      <td className="text-xs text-surface-400">
-                        {format(new Date(log.created_at), "dd/MM/yyyy HH:mm:ss", { locale: es })}
-                      </td>
-                      <td>
-                        {log.datos_despues && (
-                          <details className="cursor-pointer">
-                            <summary className="text-xs text-brand-400 hover:text-brand-300">Ver datos</summary>
-                            <pre className="text-[10px] text-surface-400 bg-surface-900 p-2 rounded mt-1 max-w-xs overflow-x-auto">
-                              {JSON.stringify(log.datos_despues, null, 2)}
-                            </pre>
-                          </details>
-                        )}
-                      </td>
+              <button onClick={loadAudit} className="btn-ghost btn-sm self-start sm:self-auto flex items-center gap-1.5 text-surface-300 hover:text-white">
+                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                <span>Actualizar</span>
+              </button>
+            </div>
+
+            {/* Filter bar */}
+            <div className="flex flex-wrap gap-2.5 items-center bg-surface-800/40 p-3 rounded-xl border border-surface-700/60">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500" />
+                <input
+                  type="text"
+                  placeholder="Buscar por usuario, email o contenido..."
+                  className="form-input pl-8 py-1.5 text-xs w-full"
+                  value={auditSearch}
+                  onChange={(e) => setAuditSearch(e.target.value)}
+                  id="audit-search"
+                />
+              </div>
+              <select
+                className="form-select py-1.5 text-xs"
+                value={auditActionFilter}
+                onChange={(e) => setAuditActionFilter(e.target.value)}
+                id="audit-filter-action"
+              >
+                <option value="">Todas las acciones</option>
+                <option value="INSERT">🟢 Creaciones (INSERT)</option>
+                <option value="UPDATE">🟡 Modificaciones (UPDATE)</option>
+                <option value="DELETE">🔴 Eliminaciones (DELETE)</option>
+              </select>
+              <select
+                className="form-select py-1.5 text-xs"
+                value={auditTableFilter}
+                onChange={(e) => setAuditTableFilter(e.target.value)}
+                id="audit-filter-table"
+              >
+                <option value="">Todos los módulos</option>
+                <option value="stock_shortages">⚠️ Faltas de Stock</option>
+                <option value="deliveries">🚚 Descargas / Camiones</option>
+                <option value="price_alerts">📉 Alertas de Precios</option>
+                <option value="shortage_comments">💬 Comentarios</option>
+                <option value="delivery_items">📦 Artículos</option>
+                <option value="profiles">👤 Usuarios</option>
+                <option value="suppliers">🏢 Proveedores</option>
+              </select>
+              {(auditSearch || auditActionFilter || auditTableFilter) && (
+                <button
+                  onClick={() => { setAuditSearch(''); setAuditActionFilter(''); setAuditTableFilter('') }}
+                  className="text-xs text-brand-400 hover:text-brand-300 underline px-1"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+
+            {/* Table */}
+            <div className="table-wrapper">
+              {loading ? (
+                <div className="flex items-center justify-center h-48">
+                  <div className="w-6 h-6 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
+                </div>
+              ) : filteredAudit.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-surface-500">
+                  <Activity size={32} className="mb-2 opacity-30" />
+                  <p className="text-sm">No se encontraron eventos con los filtros seleccionados</p>
+                </div>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Acción</th>
+                      <th>Módulo</th>
+                      <th>Descripción de la Operación</th>
+                      <th>Realizado por</th>
+                      <th>Fecha y Hora</th>
+                      <th>Datos (JSON)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  </thead>
+                  <tbody>
+                    {filteredAudit.map((log) => {
+                      const actionMeta = auditColors[log.accion] || { badge: 'bg-surface-700 text-surface-300', text: 'text-surface-400', label: log.accion }
+                      const tableMeta = tableLabels[log.tabla] || { label: log.tabla, icon: '📋' }
+                      const summary = getSummary(log)
+
+                      return (
+                        <tr key={log.id} className="hover:bg-surface-800/80">
+                          <td>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border ${actionMeta.badge}`}>
+                              {actionMeta.label}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="inline-flex items-center gap-1.5 text-xs text-surface-300 font-medium bg-surface-700/50 px-2 py-0.5 rounded-md border border-surface-600/40">
+                              <span>{tableMeta.icon}</span>
+                              <span>{tableMeta.label}</span>
+                            </span>
+                          </td>
+                          <td>
+                            <p className="text-xs font-medium text-surface-100">{summary}</p>
+                          </td>
+                          <td>
+                            <div>
+                              <p className="text-xs font-medium text-surface-200">{log.user_nombre || log.user_email || 'Sistema'}</p>
+                              {log.user_email && (
+                                <p className="text-[11px] text-surface-500">{log.user_email}</p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="text-xs text-surface-400 whitespace-nowrap">
+                            {format(new Date(log.created_at), "dd/MM/yyyy · HH:mm:ss", { locale: es })}
+                          </td>
+                          <td>
+                            <details className="cursor-pointer">
+                              <summary className="text-xs text-brand-400 hover:text-brand-300">
+                                {log.accion === 'UPDATE' ? 'Ver cambios' : 'Ver detalle'}
+                              </summary>
+                              <div className="bg-surface-950/90 border border-surface-800 p-2.5 rounded-lg mt-1.5 max-w-xs space-y-2">
+                                {log.datos_antes && (
+                                  <div>
+                                    <span className="text-[10px] text-amber-400 font-semibold block mb-0.5">Antes:</span>
+                                    <pre className="text-[10px] text-surface-400 overflow-x-auto">
+                                      {JSON.stringify(log.datos_antes, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                {log.datos_despues && (
+                                  <div>
+                                    <span className="text-[10px] text-green-400 font-semibold block mb-0.5">Después:</span>
+                                    <pre className="text-[10px] text-surface-300 overflow-x-auto">
+                                      {JSON.stringify(log.datos_despues, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            </details>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Backup tab */}
       {tab === 'backup' && (

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Filter, Search, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Plus, Filter, Search, RefreshCw, AlertTriangle, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import type { StockShortage } from '@/types'
@@ -61,6 +61,17 @@ export default function ShortagesPage() {
     if (error) toast.error(error.message)
     else {
       toast.success('Estado actualizado')
+      loadShortages()
+    }
+  }
+
+  const deleteShortage = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm('¿Seguro que deseas eliminar esta falta de stock?')) return
+    const { error } = await supabase.from('stock_shortages').delete().eq('id', id)
+    if (error) toast.error(`Error al eliminar: ${error.message}`)
+    else {
+      toast.success('Falta eliminada correctamente')
       loadShortages()
     }
   }
@@ -177,47 +188,61 @@ export default function ShortagesPage() {
                 <th>Estado</th>
                 <th>Reportado por</th>
                 <th>Fecha</th>
-                {canManage && <th>Acción rápida</th>}
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((s) => (
-                <tr key={s.id} onClick={() => setSelected(s)}>
-                  <td>
-                    <span className={urgencyClass[s.urgencia] || 'badge badge-gray'}>
-                      {s.urgencia}
-                    </span>
-                  </td>
-                  <td className="font-medium text-surface-100">{s.categoria}</td>
-                  <td className="text-surface-400">{s.especificacion || '—'}</td>
-                  <td className="font-mono text-brand-400">{s.modelo || '—'}</td>
-                  <td>
-                    <span className={`badge ${statusClass[s.estado] || 'badge-gray'}`}>
-                      {s.estado}
-                    </span>
-                  </td>
-                  <td>
-                    <div>
-                      <p className="text-sm text-surface-200">{(s as any).reporter?.nombre_completo || '—'}</p>
-                      <p className="text-xs text-surface-500">{(s as any).reporter?.cargo || ''}</p>
-                    </div>
-                  </td>
-                  <td className="text-xs text-surface-400">
-                    {new Date(s.created_at).toLocaleDateString('es-ES')}
-                  </td>
-                  {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <select
-                        className="form-select py-1 text-xs"
-                        value={s.estado}
-                        onChange={(e) => updateStatus(s.id, e.target.value)}
-                      >
-                        {ESTADOS.map((e) => <option key={e}>{e}</option>)}
-                      </select>
+              {filtered.map((s) => {
+                const canDelete = profile?.rol === 'Administrador' || profile?.rol === 'Compras' || profile?.id === s.reportado_por
+                return (
+                  <tr key={s.id} onClick={() => setSelected(s)} className="cursor-pointer hover:bg-surface-800/80">
+                    <td>
+                      <span className={urgencyClass[s.urgencia] || 'badge badge-gray'}>
+                        {s.urgencia}
+                      </span>
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td className="font-medium text-surface-100">{s.categoria}</td>
+                    <td className="text-surface-400">{s.especificacion || '—'}</td>
+                    <td className="font-mono text-brand-400">{s.modelo || '—'}</td>
+                    <td>
+                      <span className={`badge ${statusClass[s.estado] || 'badge-gray'}`}>
+                        {s.estado}
+                      </span>
+                    </td>
+                    <td>
+                      <div>
+                        <p className="text-sm text-surface-200">{(s as any).reporter?.nombre_completo || '—'}</p>
+                        <p className="text-xs text-surface-500">{(s as any).reporter?.cargo || ''}</p>
+                      </div>
+                    </td>
+                    <td className="text-xs text-surface-400">
+                      {new Date(s.created_at).toLocaleDateString('es-ES')}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2">
+                        {canManage && (
+                          <select
+                            className="form-select py-1 text-xs"
+                            value={s.estado}
+                            onChange={(e) => updateStatus(s.id, e.target.value)}
+                          >
+                            {ESTADOS.map((e) => <option key={e}>{e}</option>)}
+                          </select>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={(e) => deleteShortage(s.id, e)}
+                            className="p-1.5 text-surface-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Eliminar falta"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
