@@ -10,8 +10,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [isRegister, setIsRegister] = useState(false)
-  const [nombreCompleto, setNombreCompleto] = useState('')
   const { setUser } = useAuthStore()
   const navigate = useNavigate()
 
@@ -20,39 +18,6 @@ export default function LoginPage() {
     if (!email || !password) return
 
     setLoading(true)
-
-    if (isRegister) {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            nombre_completo: nombreCompleto || email.split('@')[0],
-            cargo: 'Director General',
-            rol: 'Administrador',
-          }
-        }
-      })
-      if (error) {
-        console.error('Supabase signup error:', error)
-        toast.error(`Error: ${error.message}`)
-        setLoading(false)
-        return
-      }
-      if (data.user) {
-        const { data: loginData } = await supabase.auth.signInWithPassword({ email, password })
-        if (loginData?.user) {
-          setUser(loginData.user)
-          toast.success('¡Usuario registrado y conectado!')
-          navigate('/dashboard')
-        } else {
-          toast.success('¡Usuario creado correctamente! Inicia sesión.')
-          setIsRegister(false)
-        }
-      }
-      setLoading(false)
-      return
-    }
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
@@ -99,29 +64,14 @@ export default function LoginPage() {
         <div className="glass-card" style={{ padding: '2rem', boxShadow: '0 25px 50px rgba(0,0,0,0.4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'white', margin: 0 }}>
-              {isRegister ? 'Crear cuenta Administrador' : 'Iniciar sesión'}
+              Iniciar sesión
             </h2>
           </div>
           <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '0 0 1.25rem 0' }}>
-            {isRegister ? 'Registra tu usuario con rol de Administrador' : 'Accede con tus credenciales corporativas'}
+            Accede con tus credenciales corporativas
           </p>
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {isRegister && (
-              <div className="form-group">
-                <label htmlFor="nombreCompleto" className="form-label">Nombre completo</label>
-                <input
-                  id="nombreCompleto"
-                  type="text"
-                  className="form-input"
-                  placeholder="Alejandro Moreno"
-                  value={nombreCompleto}
-                  onChange={(e) => setNombreCompleto(e.target.value)}
-                  required
-                />
-              </div>
-            )}
-
             <div className="form-group">
               <label htmlFor="email" className="form-label">Email</label>
               <input
@@ -174,19 +124,7 @@ export default function LoginPage() {
               {loading ? (
                 <span style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               ) : <LogIn size={16} />}
-              {loading ? (isRegister ? 'Registrando...' : 'Accediendo...') : (isRegister ? 'Crear Administrador y Entrar' : 'Entrar')}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsRegister(!isRegister)}
-              style={{
-                background: 'none', border: 'none', color: '#60a5fa',
-                fontSize: '0.8125rem', cursor: 'pointer', textAlign: 'center',
-                marginTop: '0.25rem', textDecoration: 'underline'
-              }}
-            >
-              {isRegister ? '← Volver a Iniciar sesión' : '¿Primer acceso? Crear cuenta Administrador'}
+              {loading ? 'Accediendo...' : 'Entrar'}
             </button>
           </form>
         </div>
