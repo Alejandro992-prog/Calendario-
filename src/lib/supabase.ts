@@ -1,18 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    '⚠️  Variables de entorno de Supabase no configuradas.\n' +
-    'Copia .env.example a .env y rellena VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.'
-  )
-}
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL || 'https://zrbijueeugfaugkfenbo.supabase.co'
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpyYmlqdWVldWdmYXVna2ZlbmJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NTc1NjMsImV4cCI6MjEwMzQzMzU2M30.rsQfAFCIl4zuQSEhXNxUv65IYKuHWlGw9nbrlVEmgqI'
 
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       persistSession: true,
