@@ -8,11 +8,8 @@ export async function parsePDF(file: File): Promise<ParsedItem[]> {
   // Dynamically import pdfjs to avoid SSR issues
   const pdfjsLib = await import('pdfjs-dist')
   
-  // Set worker source
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url
-  ).toString()
+  // Set worker source via reliable CDN matching current pdfjs version
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '3.11.174'}/pdf.worker.min.js`
 
   const buffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
