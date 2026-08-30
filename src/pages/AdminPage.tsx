@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Plus, Shield, Users, Activity, RefreshCw, Edit2, Trash2, X, Check, Eye, EyeOff } from 'lucide-react'
+import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server } from 'lucide-react'
 import { supabase, createUserWithoutSession } from '@/lib/supabase'
+import { generateFullBackup, downloadBackupFile } from '@/lib/backup'
 import { useAuthStore } from '@/store/authStore'
 import type { Profile, AuditLog, UserRole } from '@/types'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
-type Tab = 'users' | 'audit'
+type Tab = 'users' | 'audit' | 'backup'
 
 const ROLES: UserRole[] = ['Administrador', 'Compras', 'Comercial']
 
@@ -31,11 +32,48 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [showUserForm, setShowUserForm] = useState(false)
   const [editingUser, setEditingUser] = useState<Profile | null>(null)
+  const [isExporting, setIsExporting] = useState(false)
+  const [backupStats, setBackupStats] = useState<Record<string, number> | null>(null)
+  const [loadingStats, setLoadingStats] = useState(false)
 
   useEffect(() => {
     if (tab === 'users') loadUsers()
-    else loadAudit()
+    else if (tab === 'audit') loadAudit()
+    else if (tab === 'backup') loadBackupStats()
   }, [tab])
+
+  const loadBackupStats = async () => {
+    setLoadingStats(true)
+    try {
+      const res = await generateFullBackup(profile?.email)
+      if (res.success && res.data) {
+        setBackupStats(res.data.metadata.counts)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+
+  const handleDownloadBackup = async () => {
+    setIsExporting(true)
+    const toastId = toast.loading('Generando copia de seguridad...')
+    try {
+      const res = await generateFullBackup(profile?.email)
+      if (res.success && res.data) {
+        downloadBackupFile(res.data)
+        setBackupStats(res.data.metadata.counts)
+        toast.success('¡Copia de seguridad descargada correctamente!', { id: toastId })
+      } else {
+        toast.error(res.error || 'Error al generar la copia de seguridad', { id: toastId })
+      }
+    } catch (err: any) {
+      toast.error('Error inesperado al exportar los datos', { id: toastId })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const loadUsers = async () => {
     setLoading(true)
@@ -79,18 +117,33 @@ export default function AdminPage() {
   return (
     <div className="space-y-4">
       {/* Page header */}
-      <div className="page-header">
+      <div className="page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="page-title flex items-center gap-2">
             <Shield size={22} className="text-purple-400" />
             Administración
           </h1>
-          <p className="page-subtitle">Gestión de usuarios y auditoría del sistema</p>
+          <p className="page-subtitle">Gestión de usuarios, auditoría y copias de seguridad del sistema</p>
         </div>
+
+        <button
+          onClick={handleDownloadBackup}
+          disabled={isExporting}
+          className="btn-secondary flex items-center gap-2 self-start sm:self-auto border-surface-600 hover:border-brand-500/50 hover:bg-brand-500/10 text-surface-200"
+          id="btn-quick-backup"
+          title="Descargar copia de seguridad completa en JSON"
+        >
+          {isExporting ? (
+            <div className="w-4 h-4 border-2 border-brand-400/30 border-t-brand-400 rounded-full animate-spin" />
+          ) : (
+            <Download size={16} className="text-brand-400" />
+          )}
+          <span>{isExporting ? 'Exportando datos...' : 'Copia de Seguridad'}</span>
+        </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-surface-800 rounded-xl border border-surface-700 w-fit">
+      <div className="flex gap-1 p-1 bg-surface-800 rounded-xl border border-surface-700 w-fit flex-wrap">
         <button
           onClick={() => setTab('users')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -113,6 +166,17 @@ export default function AdminPage() {
           id="tab-audit"
         >
           <Activity size={14} /> Auditoría
+        </button>
+        <button
+          onClick={() => setTab('backup')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            tab === 'backup'
+              ? 'bg-brand-600/20 text-brand-400 border border-brand-500/20'
+              : 'text-surface-400 hover:text-surface-200'
+          }`}
+          id="tab-backup"
+        >
+          <HardDrive size={14} /> Copia de Seguridad
         </button>
       </div>
 
@@ -288,6 +352,129 @@ export default function AdminPage() {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Backup tab */}
+      {tab === 'backup' && (
+        <div className="space-y-6">
+          {/* Main Action Banner */}
+          <div className="card p-6 bg-gradient-to-br from-surface-800/90 via-surface-850 to-brand-950/20 border border-surface-700/80 shadow-xl relative overflow-hidden">
+            <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-brand-500/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+              <div className="space-y-2 max-w-2xl">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center text-brand-400 shadow-sm">
+                    <Database size={22} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-surface-50">Copia de Seguridad de la Base de Datos</h2>
+                    <p className="text-xs text-brand-400 font-medium">Exportación estructurada en formato JSON</p>
+                  </div>
+                </div>
+                <p className="text-sm text-surface-300 leading-relaxed pt-1">
+                  Genera y descarga un archivo seguro con todos los registros actuales del sistema: descargas de camiones, artículos, proveedores, faltas de stock, comentarios de seguimiento, alertas de precios de competidores, usuarios y registros de auditoría.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                <button
+                  onClick={handleDownloadBackup}
+                  disabled={isExporting}
+                  className="btn-primary py-3 px-6 text-base font-semibold shadow-lg shadow-brand-500/20 hover:shadow-brand-500/30 flex items-center justify-center gap-3 w-full sm:w-auto"
+                  id="btn-download-full-backup"
+                >
+                  {isExporting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Generando copia...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={20} />
+                      <span>Descargar Copia Completa (.json)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Database Content Stats */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-surface-200 flex items-center gap-2">
+                <Server size={16} className="text-surface-400" />
+                Resumen de Datos a Exportar
+              </h3>
+              <button
+                onClick={loadBackupStats}
+                disabled={loadingStats}
+                className="btn-ghost btn-sm text-xs flex items-center gap-1.5 text-surface-400 hover:text-surface-200"
+              >
+                <RefreshCw size={12} className={loadingStats ? 'animate-spin' : ''} />
+                Actualizar recuento
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Entregas / Descargas', key: 'deliveries', icon: '🚚', color: 'from-blue-500/10 to-transparent text-blue-400' },
+                { label: 'Artículos / Modelos', key: 'delivery_items', icon: '📦', color: 'from-cyan-500/10 to-transparent text-cyan-400' },
+                { label: 'Proveedores', key: 'suppliers', icon: '🏢', color: 'from-purple-500/10 to-transparent text-purple-400' },
+                { label: 'Faltas de Stock', key: 'stock_shortages', icon: '⚠️', color: 'from-amber-500/10 to-transparent text-amber-400' },
+                { label: 'Comentarios de Faltas', key: 'shortage_comments', icon: '💬', color: 'from-emerald-500/10 to-transparent text-emerald-400' },
+                { label: 'Alertas de Precio', key: 'price_alerts', icon: '📉', color: 'from-rose-500/10 to-transparent text-rose-400' },
+                { label: 'Usuarios Registrados', key: 'profiles', icon: '👥', color: 'from-indigo-500/10 to-transparent text-indigo-400' },
+                { label: 'Logs de Auditoría', key: 'audit_log', icon: '📜', color: 'from-teal-500/10 to-transparent text-teal-400' },
+              ].map((item) => (
+                <div
+                  key={item.key}
+                  className="card p-4 bg-surface-800/60 border border-surface-700/60 flex items-center justify-between"
+                >
+                  <div>
+                    <p className="text-xs text-surface-400 mb-1">{item.label}</p>
+                    <p className="text-xl font-bold text-surface-100">
+                      {loadingStats ? (
+                        <span className="inline-block w-8 h-5 bg-surface-700 animate-pulse rounded" />
+                      ) : (
+                        backupStats?.[item.key] ?? '—'
+                      )}
+                    </p>
+                  </div>
+                  <span className="text-2xl">{item.icon}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Backup recommendations */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="card p-4 bg-surface-800/40 border border-surface-700/60 flex gap-3.5">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 h-fit">
+                <CheckCircle2 size={18} />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold text-surface-200">Recomendaciones de guardado</h4>
+                <p className="text-xs text-surface-400 leading-relaxed">
+                  Guarda tus copias de seguridad descargadas en una unidad segura, como OneDrive corporativo, Google Drive o un disco externo periódicamente para tener un historial histórico.
+                </p>
+              </div>
+            </div>
+
+            <div className="card p-4 bg-surface-800/40 border border-surface-700/60 flex gap-3.5">
+              <div className="p-2.5 rounded-xl bg-brand-500/10 text-brand-400 h-fit">
+                <FileText size={18} />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold text-surface-200">Formato estándar y compatible</h4>
+                <p className="text-xs text-surface-400 leading-relaxed">
+                  El archivo generado es JSON universal con marcas de tiempo y metadatos, legible por cualquier software de análisis de datos o scripts de restauración.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}
