@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react'
-import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server, Search, Filter, Trash2, ArrowRight } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server, Search, Filter, Trash2, ArrowRight, Building2 } from 'lucide-react'
 import { supabase, createUserWithoutSession } from '@/lib/supabase'
 import { generateFullBackup, downloadBackupFile } from '@/lib/backup'
 import { useAuthStore } from '@/store/authStore'
-import type { Profile, AuditLog, UserRole } from '@/types'
+import type { Profile, AuditLog, UserRole, Supplier } from '@/types'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
-type Tab = 'users' | 'audit' | 'backup'
+type Tab = 'users' | 'suppliers' | 'audit' | 'backup'
 
 const ROLES: UserRole[] = ['Administrador', 'Compras', 'Comercial']
 
@@ -51,11 +51,53 @@ export default function AdminPage() {
   const [auditActionFilter, setAuditActionFilter] = useState('')
   const [auditTableFilter, setAuditTableFilter] = useState('')
 
+  // Suppliers state
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [loadingSuppliers, setLoadingSuppliers] = useState(false)
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [showSupplierModal, setShowSupplierModal] = useState(false)
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
+
   useEffect(() => {
     if (tab === 'users') loadUsers()
+    else if (tab === 'suppliers') loadSuppliers()
     else if (tab === 'audit') loadAudit()
     else if (tab === 'backup') loadBackupStats()
   }, [tab])
+
+  const loadSuppliers = async () => {
+    setLoadingSuppliers(true)
+    const { data, error } = await supabase.from('suppliers').select('*').order('nombre', { ascending: true })
+    if (error) {
+      toast.error('Error al cargar proveedores: ' + error.message)
+    } else {
+      setSuppliers((data || []) as Supplier[])
+    }
+    setLoadingSuppliers(false)
+  }
+
+  const toggleSupplierActive = async (s: Supplier) => {
+    const { error } = await supabase
+      .from('suppliers')
+      .update({ activo: !s.activo })
+      .eq('id', s.id)
+    if (error) toast.error(error.message)
+    else {
+      toast.success(`Marca/Proveedor ${!s.activo ? 'activado' : 'desactivado'}`)
+      loadSuppliers()
+    }
+  }
+
+  const deleteSupplier = async (s: Supplier) => {
+    if (!window.confirm(`¿Estás seguro de eliminar la marca/proveedor "${s.nombre}"?`)) return
+    const { error } = await supabase.from('suppliers').delete().eq('id', s.id)
+    if (error) {
+      toast.error('No se pudo eliminar: ' + error.message)
+    } else {
+      toast.success('Proveedor eliminado')
+      loadSuppliers()
+    }
+  }
 
   const loadBackupStats = async () => {
     setLoadingStats(true)
@@ -138,7 +180,7 @@ export default function AdminPage() {
             <Shield size={22} className="text-purple-400" />
             Administración
           </h1>
-          <p className="page-subtitle">Gestión de usuarios, auditoría y copias de seguridad del sistema</p>
+          <p className="page-subtitle">Gestión de usuarios, proveedores, auditoría y copias de seguridad</p>
         </div>
 
         <button
@@ -170,6 +212,18 @@ export default function AdminPage() {
         >
           <Users size={14} /> Usuarios
           <span className="badge badge-gray text-xs">{users.length}</span>
+        </button>
+        <button
+          onClick={() => setTab('suppliers')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            tab === 'suppliers'
+              ? 'bg-brand-600/20 text-brand-400 border border-brand-500/20'
+              : 'text-surface-400 hover:text-surface-200'
+          }`}
+          id="tab-suppliers"
+        >
+          <Building2 size={14} /> Proveedores / Marcas
+          <span className="badge badge-gray text-xs">{suppliers.length}</span>
         </button>
         <button
           onClick={() => setTab('audit')}
@@ -303,6 +357,127 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* Suppliers / Brands tab */}
+      {tab === 'suppliers' && (() => {
+        const filteredSuppliers = suppliers.filter((s) => {
+          if (!supplierSearch.trim()) return true
+          return s.nombre.toLowerCase().includes(supplierSearch.toLowerCase().trim())
+        })
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div className="relative flex-1 max-w-sm">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar marca o proveedor..."
+                  value={supplierSearch}
+                  onChange={(e) => setSupplierSearch(e.target.value)}
+                  className="form-input pl-9 text-xs"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-surface-400">
+                  {suppliers.filter((s) => s.activo).length} activas / {suppliers.length} total
+                </span>
+                <button onClick={loadSuppliers} className="btn-ghost btn-icon btn-sm" title="Refrescar">
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  onClick={() => { setEditingSupplier(null); setShowSupplierModal(true) }}
+                  className="btn-primary"
+                  id="btn-new-supplier"
+                >
+                  <Plus size={16} /> Nueva Marca / Proveedor
+                </button>
+              </div>
+            </div>
+
+            <div className="table-wrapper">
+              {loadingSuppliers ? (
+                <div className="flex items-center justify-center h-48">
+                  <div className="w-6 h-6 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
+                </div>
+              ) : filteredSuppliers.length === 0 ? (
+                <div className="text-center py-12 text-surface-400 space-y-2">
+                  <p className="text-sm font-medium">No se encontraron marcas o proveedores</p>
+                  <p className="text-xs text-surface-500">
+                    {supplierSearch ? 'Prueba con otro término de búsqueda.' : 'Crea tu primera marca con el botón superior.'}
+                  </p>
+                </div>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Marca / Proveedor</th>
+                      <th>Estado</th>
+                      <th>Fecha de Alta</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSuppliers.map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-surface-700/60 border border-surface-600/50 flex items-center justify-center text-sm font-bold text-surface-200 uppercase">
+                              {s.nombre.slice(0, 2)}
+                            </div>
+                            <span className="font-semibold text-surface-100 text-sm">{s.nombre}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`badge ${s.activo ? 'badge-green' : 'badge-gray'}`}>
+                            {s.activo ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        <td className="text-xs text-surface-400">
+                          {s.created_at ? format(new Date(s.created_at), 'dd/MM/yyyy', { locale: es }) : '—'}
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => { setEditingSupplier(s); setShowSupplierModal(true) }}
+                              className="p-1.5 text-surface-400 hover:text-brand-400 hover:bg-brand-500/10 rounded-lg transition-colors"
+                              title="Editar marca"
+                              id={`edit-supplier-${s.id}`}
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              onClick={() => toggleSupplierActive(s)}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                s.activo
+                                  ? 'text-surface-400 hover:text-yellow-400 hover:bg-yellow-500/10'
+                                  : 'text-surface-400 hover:text-green-400 hover:bg-green-500/10'
+                              }`}
+                              title={s.activo ? 'Desactivar' : 'Activar'}
+                              id={`toggle-supplier-${s.id}`}
+                            >
+                              {s.activo ? <EyeOff size={13} /> : <Eye size={13} />}
+                            </button>
+                            <button
+                              onClick={() => deleteSupplier(s)}
+                              className="p-1.5 text-surface-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                              title="Eliminar marca"
+                              id={`delete-supplier-${s.id}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Audit tab */}
       {tab === 'audit' && (() => {
@@ -665,6 +840,133 @@ export default function AdminPage() {
           onSaved={() => { setShowUserForm(false); loadUsers() }}
         />
       )}
+
+      {/* Supplier form modal */}
+      {showSupplierModal && (
+        <SupplierFormModal
+          supplier={editingSupplier}
+          onClose={() => setShowSupplierModal(false)}
+          onSaved={() => { setShowSupplierModal(false); loadSuppliers() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---- Supplier form modal ----
+interface SupplierFormProps {
+  supplier: Supplier | null
+  onClose: () => void
+  onSaved: () => void
+}
+
+function SupplierFormModal({ supplier, onClose, onSaved }: SupplierFormProps) {
+  const [nombre, setNombre] = useState(supplier?.nombre || '')
+  const [activo, setActivo] = useState(supplier?.activo ?? true)
+  const [saving, setSaving] = useState(false)
+  const isBackdropClick = useRef(false)
+  const isNew = !supplier
+
+  const handleSave = async () => {
+    if (!nombre.trim()) {
+      toast.error('El nombre de la marca o proveedor es obligatorio')
+      return
+    }
+
+    setSaving(true)
+
+    if (isNew) {
+      const { error } = await supabase.from('suppliers').insert({
+        nombre: nombre.trim(),
+        activo,
+      })
+
+      if (error) {
+        toast.error('Error al crear: ' + error.message)
+      } else {
+        toast.success(`Marca "${nombre.trim()}" creada con éxito`)
+        onSaved()
+      }
+    } else {
+      const { error } = await supabase
+        .from('suppliers')
+        .update({
+          nombre: nombre.trim(),
+          activo,
+        })
+        .eq('id', supplier.id)
+
+      if (error) {
+        toast.error('Error al actualizar: ' + error.message)
+      } else {
+        toast.success('Marca actualizada con éxito')
+        onSaved()
+      }
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        isBackdropClick.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && isBackdropClick.current) {
+          onClose()
+        }
+        isBackdropClick.current = false
+      }}
+    >
+      <div className="modal-panel max-w-md w-full">
+        <div className="modal-header">
+          <h2 className="modal-title flex items-center gap-2">
+            <Building2 size={18} className="text-brand-400" />
+            {isNew ? 'Nueva Marca / Proveedor' : 'Editar Marca / Proveedor'}
+          </h2>
+          <button onClick={onClose} className="btn-ghost btn-icon"><X size={18} /></button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); handleSave() }}>
+          <div className="modal-body space-y-4">
+            <div className="form-group">
+              <label className="form-label">Nombre de la Marca o Proveedor *</label>
+              <input
+                type="text"
+                autoFocus
+                className="form-input text-base"
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                placeholder="Ej: Balay, Bosch, LG, Teka..."
+                id="supplier-nombre"
+              />
+              <p className="text-[11px] text-surface-400 mt-1">
+                Aparecerá disponible en el calendario de descargas y camiones.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="checkbox"
+                id="supplier-activo"
+                checked={activo}
+                onChange={(e) => setActivo(e.target.checked)}
+                className="rounded border-surface-600 bg-surface-800 text-brand-500 focus:ring-brand-500 h-4 w-4"
+              />
+              <label htmlFor="supplier-activo" className="text-xs text-surface-300 select-none cursor-pointer">
+                Marca activa y disponible para programar descargas
+              </label>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={saving} className="btn-primary" id="supplier-save">
+              {saving && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              {saving ? 'Guardando...' : isNew ? 'Crear Marca' : 'Guardar Cambios'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -684,6 +986,7 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
   const [rol, setRol] = useState<UserRole>(user?.rol || 'Comercial')
   const [saving, setSaving] = useState(false)
   const [showPass, setShowPass] = useState(false)
+  const isBackdropClick = useRef(false)
   const isNew = !user
 
   const handleSave = async () => {
@@ -736,7 +1039,18 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        isBackdropClick.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && isBackdropClick.current) {
+          onClose()
+        }
+        isBackdropClick.current = false
+      }}
+    >
       <div className="modal-panel max-w-md w-full">
         <div className="modal-header">
           <h2 className="modal-title">{isNew ? 'Nuevo Usuario' : 'Editar Usuario'}</h2>

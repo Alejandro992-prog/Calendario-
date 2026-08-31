@@ -1,11 +1,11 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, Package } from 'lucide-react'
+import { X, Package, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import toast from 'react-hot-toast'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 const CATEGORIAS = ['Frío', 'Lavado', 'Cocción', 'Lavavajillas', 'Imagen', 'Pequeño Electrodoméstico', 'Climatización', 'Otro']
 
@@ -26,11 +26,14 @@ interface ShortageFormProps {
 export default function ShortageForm({ onClose, onSaved }: ShortageFormProps) {
   const { profile } = useAuthStore()
   const [saving, setSaving] = useState(false)
+  const isBackdropClick = useRef(false)
 
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { urgencia: 'Media' },
   })
+
+  const currentUrgency = watch('urgencia')
 
   const onSubmit = async (data: FormData) => {
     setSaving(true)
@@ -49,7 +52,18 @@ export default function ShortageForm({ onClose, onSaved }: ShortageFormProps) {
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        isBackdropClick.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && isBackdropClick.current) {
+          onClose()
+        }
+        isBackdropClick.current = false
+      }}
+    >
       <div className="modal-panel max-w-lg w-full">
         <div className="modal-header">
           <div className="flex items-center gap-3">
@@ -105,22 +119,52 @@ export default function ShortageForm({ onClose, onSaved }: ShortageFormProps) {
 
             {/* Urgencia */}
             <div className="form-group">
-              <label className="form-label">Urgencia *</label>
-              <div className="grid grid-cols-4 gap-2">
+              <label className="form-label flex items-center justify-between">
+                <span>Nivel de Urgencia *</span>
+                <span className="text-xs text-surface-400 font-normal">
+                  Seleccionado: <strong className="text-surface-200">{currentUrgency}</strong>
+                </span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {(['Baja', 'Media', 'Alta', 'Crítica'] as const).map((u) => {
-                  const colors: Record<string, string> = {
-                    Baja: 'border-green-500/40 text-green-400 bg-green-500/10',
-                    Media: 'border-yellow-500/40 text-yellow-400 bg-yellow-500/10',
-                    Alta: 'border-red-500/40 text-red-400 bg-red-500/10',
-                    Crítica: 'border-red-600/60 text-red-300 bg-red-600/20',
+                  const isSelected = currentUrgency === u
+
+                  const selectedStyles: Record<string, string> = {
+                    Baja: 'border-emerald-500 bg-emerald-500/20 text-emerald-300 ring-2 ring-emerald-500/60 shadow-lg shadow-emerald-950/40',
+                    Media: 'border-amber-500 bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/60 shadow-lg shadow-amber-950/40',
+                    Alta: 'border-orange-500 bg-orange-500/20 text-orange-300 ring-2 ring-orange-500/60 shadow-lg shadow-orange-950/40',
+                    Crítica: 'border-red-500 bg-red-600/25 text-red-200 ring-2 ring-red-500/70 shadow-lg shadow-red-950/50',
                   }
+
+                  const unselectedStyles: Record<string, string> = {
+                    Baja: 'border-surface-700 bg-surface-800/40 text-surface-400 hover:border-emerald-500/40 hover:text-surface-200 hover:bg-surface-800',
+                    Media: 'border-surface-700 bg-surface-800/40 text-surface-400 hover:border-amber-500/40 hover:text-surface-200 hover:bg-surface-800',
+                    Alta: 'border-surface-700 bg-surface-800/40 text-surface-400 hover:border-orange-500/40 hover:text-surface-200 hover:bg-surface-800',
+                    Crítica: 'border-surface-700 bg-surface-800/40 text-surface-400 hover:border-red-500/40 hover:text-surface-200 hover:bg-surface-800',
+                  }
+
+                  const dotColors: Record<string, string> = {
+                    Baja: 'bg-emerald-400',
+                    Media: 'bg-amber-400',
+                    Alta: 'bg-orange-400',
+                    Crítica: 'bg-red-400 animate-pulse',
+                  }
+
                   return (
                     <label
                       key={u}
-                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border cursor-pointer transition-all ${colors[u]} hover:opacity-90`}
+                      className={`relative flex items-center justify-center gap-1.5 p-2.5 rounded-xl border cursor-pointer transition-all duration-150 select-none ${
+                        isSelected
+                          ? `${selectedStyles[u]} scale-[1.02] font-bold`
+                          : `${unselectedStyles[u]} font-medium`
+                      }`}
                     >
                       <input type="radio" {...register('urgencia')} value={u} className="sr-only" />
-                      <span className="text-xs font-semibold">{u}</span>
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isSelected ? dotColors[u] : 'bg-surface-600'}`} />
+                      <span className="text-xs">{u}</span>
+                      {isSelected && (
+                        <Check size={13} className="ml-auto stroke-[2.5]" />
+                      )}
                     </label>
                   )
                 })}

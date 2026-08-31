@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -31,6 +31,7 @@ export default function AlertForm({ onClose, onSaved }: AlertFormProps) {
   const [saving, setSaving] = useState(false)
   const [captureFile, setCaptureFile] = useState<File | null>(null)
   const [capturePreview, setCapturePreview] = useState<string | null>(null)
+  const isBackdropClick = useRef(false)
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -82,7 +83,18 @@ export default function AlertForm({ onClose, onSaved }: AlertFormProps) {
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        isBackdropClick.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && isBackdropClick.current) {
+          onClose()
+        }
+        isBackdropClick.current = false
+      }}
+    >
       <div className="modal-panel max-w-xl w-full">
         <div className="modal-header">
           <div className="flex items-center gap-3">

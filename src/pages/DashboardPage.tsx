@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Truck, Package, TrendingDown, AlertTriangle, Calendar, ArrowRight, CheckCircle2, Clock, Loader } from 'lucide-react'
+import { Truck, Package, TrendingDown, AlertTriangle, Calendar, ArrowRight, CheckCircle2, Clock, Loader, Check } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import { format, isToday, isTomorrow } from 'date-fns'
 import { es } from 'date-fns/locale'
+import toast from 'react-hot-toast'
 
 const statusIcon: Record<string, React.ReactNode> = {
   Programada:  <Clock size={14} className="text-blue-400" />,
@@ -28,6 +29,7 @@ function formatDeliveryDate(dateStr: string) {
 
 export default function DashboardPage() {
   const { profile } = useAuthStore()
+  const canEdit = profile?.rol === 'Administrador' || profile?.rol === 'Compras'
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [shortages, setShortages] = useState<any[]>([])
   const [alerts, setAlerts] = useState<any[]>([])
@@ -36,6 +38,23 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  const handleQuickComplete = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const { error } = await supabase
+      .from('deliveries')
+      .update({ estado: 'Descargada', updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    if (error) {
+      toast.error('Error al actualizar descarga: ' + error.message)
+    } else {
+      toast.success('¡Descarga completada y registrada!')
+      window.dispatchEvent(new CustomEvent('garde_notification_update'))
+      loadData()
+    }
+  }
 
   const loadData = async () => {
     // Real Supabase queries
@@ -196,9 +215,22 @@ export default function DashboardPage() {
                       {d.items?.[0]?.count && ` · ${d.items[0].count} artículos`}
                     </p>
                   </div>
-                  <span style={{ fontSize: '0.725rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                    {formatDeliveryDate(d.fecha_prevista)}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                    <span style={{ fontSize: '0.725rem', color: '#64748b', whiteSpace: 'nowrap' }}>
+                      {formatDeliveryDate(d.fecha_prevista)}
+                    </span>
+                    {canEdit && d.estado !== 'Descargada' && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleQuickComplete(d.id, e)}
+                        className="btn-sm flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/30 transition-colors"
+                        title="Marcar esta descarga como completada"
+                      >
+                        <Check size={12} />
+                        <span>Completar</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

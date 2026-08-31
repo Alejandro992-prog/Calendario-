@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, MessageSquare, Send, AlertTriangle, User, Trash2 } from 'lucide-react'
+import { X, MessageSquare, Send, AlertTriangle, User, Trash2, Mail } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
+import { sendShortageEmailNotification } from '@/lib/emailNotification'
 import type { StockShortage, ShortageComment } from '@/types'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
@@ -32,6 +33,7 @@ export default function ShortageDetailModal({ shortage, canManage, onClose, onUp
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const isBackdropClick = useRef(false)
   const endRef = useRef<HTMLDivElement>(null)
 
   const canDelete = profile?.rol === 'Administrador' || profile?.rol === 'Compras' || profile?.id === shortage.reportado_por
@@ -56,15 +58,33 @@ export default function ShortageDetailModal({ shortage, canManage, onClose, onUp
   const sendComment = async () => {
     if (!newComment.trim()) return
     setSendingComment(true)
+    const content = newComment.trim()
     const { error } = await supabase.from('shortage_comments').insert({
       shortage_id: shortage.id,
       autor_id: profile?.id,
-      contenido: newComment.trim(),
+      contenido: content,
     })
-    if (error) toast.error(error.message)
-    else {
+    if (error) {
+      toast.error(error.message)
+    } else {
       setNewComment('')
       await loadComments()
+      window.dispatchEvent(new CustomEvent('garde_notification_update'))
+
+      // If commenter is not the reporter, send/prepare email notification to reporter
+      const reporterEmail = (shortage as any).reporter?.email
+      const reporterName = (shortage as any).reporter?.nombre_completo || 'Compañero'
+      if (reporterEmail && profile?.id !== shortage.reportado_por) {
+        sendShortageEmailNotification({
+          toEmail: reporterEmail,
+          toName: reporterName,
+          shortageModel: shortage.modelo || undefined,
+          shortageCategory: shortage.categoria,
+          updateType: 'comment',
+          updatedByName: profile?.nombre_completo || 'Equipo Garde',
+          commentContent: content,
+        })
+      }
     }
     setSendingComment(false)
   }
@@ -73,13 +93,35 @@ export default function ShortageDetailModal({ shortage, canManage, onClose, onUp
     setUpdatingStatus(true)
     const { error } = await supabase
       .from('stock_shortages')
-      .update({ estado, gestionado_por: profile?.id })
+      .update({
+        estado,
+        gestionado_por: profile?.id,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', shortage.id)
-    if (error) toast.error(error.message)
-    else {
+
+    if (error) {
+      toast.error(error.message)
+    } else {
       setCurrentEstado(estado as any)
       toast.success('Estado actualizado')
+      window.dispatchEvent(new CustomEvent('garde_notification_update'))
       onUpdated()
+
+      // Notify reporter by email if status changed by someone else
+      const reporterEmail = (shortage as any).reporter?.email
+      const reporterName = (shortage as any).reporter?.nombre_completo || 'Compañero'
+      if (reporterEmail && profile?.id !== shortage.reportado_por) {
+        sendShortageEmailNotification({
+          toEmail: reporterEmail,
+          toName: reporterName,
+          shortageModel: shortage.modelo || undefined,
+          shortageCategory: shortage.categoria,
+          updateType: 'status_change',
+          updatedByName: profile?.nombre_completo || 'Equipo Garde',
+          newStatus: estado,
+        })
+      }
     }
     setUpdatingStatus(false)
   }
@@ -108,7 +150,18 @@ export default function ShortageDetailModal({ shortage, canManage, onClose, onUp
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        isBackdropClick.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && isBackdropClick.current) {
+          onClose()
+        }
+        isBackdropClick.current = false
+      }}
+    >
       <div className="modal-panel max-w-2xl w-full flex flex-col" style={{ maxHeight: '85vh' }}>
         {/* Header */}
         <div className="modal-header flex-shrink-0">

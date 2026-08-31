@@ -46,18 +46,26 @@ export default function LoginPage() {
 
       <div className="relative w-full max-w-md animate-scale-in">
         {/* Logo */}
-        <div className="text-center" style={{ marginBottom: '2rem' }}>
+        <div className="text-center" style={{ marginBottom: '1.75rem' }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: '64px', height: '64px', borderRadius: '18px',
-            background: 'linear-gradient(135deg, #3b82f6, #06b6d4)',
-            boxShadow: '0 20px 40px rgba(59,130,246,0.3)',
+            padding: '0.75rem', borderRadius: '20px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 40px rgba(59,130,246,0.25), 0 0 0 1px rgba(255,255,255,0.1)',
             marginBottom: '1rem',
           }}>
-            <Zap size={30} color="white" />
+            <img
+              src="/logo.png"
+              alt="Grupo Garde"
+              style={{ height: '72px', width: 'auto', objectFit: 'contain' }}
+            />
           </div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'white', margin: 0 }}>Garde</h1>
-          <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: '0.25rem' }}>Gestión Logística · Electrodomésticos</p>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'white', margin: 0, letterSpacing: '-0.025em' }}>
+            Grupo Garde
+          </h1>
+          <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginTop: '0.25rem' }}>
+            Gestión Logística · Electrodomésticos
+          </p>
         </div>
 
         {/* Card */}

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Plus, Filter, Search, RefreshCw, AlertTriangle, Trash2 } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, Filter, Search, RefreshCw, AlertTriangle, Trash2, User } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import type { StockShortage } from '@/types'
@@ -33,6 +33,7 @@ export default function ShortagesPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterUrgency, setFilterUrgency] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [filterReporter, setFilterReporter] = useState('')
   const [search, setSearch] = useState('')
 
   useEffect(() => { loadShortages() }, [])
@@ -43,8 +44,8 @@ export default function ShortagesPage() {
       .from('stock_shortages')
       .select(`
         *,
-        reporter:profiles!reportado_por(nombre_completo, cargo, rol),
-        manager:profiles!gestionado_por(nombre_completo)
+        reporter:profiles!reportado_por(nombre_completo, email, cargo, rol),
+        manager:profiles!gestionado_por(nombre_completo, email)
       `)
       .order('created_at', { ascending: false })
 
@@ -56,11 +57,16 @@ export default function ShortagesPage() {
   const updateStatus = async (id: string, estado: string) => {
     const { error } = await supabase
       .from('stock_shortages')
-      .update({ estado, gestionado_por: profile?.id })
+      .update({
+        estado,
+        gestionado_por: profile?.id,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
     if (error) toast.error(error.message)
     else {
       toast.success('Estado actualizado')
+      window.dispatchEvent(new CustomEvent('garde_notification_update'))
       loadShortages()
     }
   }
@@ -76,17 +82,36 @@ export default function ShortagesPage() {
     }
   }
 
+  // Unique list of employees who reported shortages + current user
+  const reportersList = useMemo(() => {
+    const map = new Map<string, string>()
+    shortages.forEach((s) => {
+      if (s.reportado_por && (s as any).reporter?.nombre_completo) {
+        map.set(s.reportado_por, (s as any).reporter.nombre_completo)
+      }
+    })
+    if (profile?.id && profile?.nombre_completo && !map.has(profile.id)) {
+      map.set(profile.id, profile.nombre_completo)
+    }
+    return Array.from(map.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+  }, [shortages, profile])
+
   const filtered = shortages
     .filter((s) => !filterStatus || s.estado === filterStatus)
     .filter((s) => !filterUrgency || s.urgencia === filterUrgency)
     .filter((s) => !filterCategory || s.categoria === filterCategory)
+    .filter((s) => !filterReporter || s.reportado_por === filterReporter)
     .filter((s) => {
       if (!search) return true
       const q = search.toLowerCase()
+      const repName = ((s as any).reporter?.nombre_completo || '').toLowerCase()
       return (
         s.categoria.toLowerCase().includes(q) ||
         (s.especificacion || '').toLowerCase().includes(q) ||
-        (s.modelo || '').toLowerCase().includes(q)
+        (s.modelo || '').toLowerCase().includes(q) ||
+        repName.includes(q)
       )
     })
     .sort((a, b) => (urgencyOrder[a.urgencia] ?? 99) - (urgencyOrder[b.urgencia] ?? 99))
@@ -122,18 +147,55 @@ export default function ShortagesPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-2.5 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500" />
           <input
             type="text"
-            placeholder="Buscar..."
+            placeholder="Buscar modelo, categoría, empleado..."
             className="form-input pl-8 py-1.5 text-sm"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             id="shortage-search"
           />
         </div>
+
+        {/* Quick button "Solo mis demandas" */}
+        {profile && (
+          <button
+            type="button"
+            onClick={() => setFilterReporter(filterReporter === profile.id ? '' : profile.id)}
+            className={`btn-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+              filterReporter === profile.id
+                ? 'bg-brand-500/20 text-brand-300 border-brand-500/50 shadow-sm shadow-brand-500/20'
+                : 'bg-surface-800 text-surface-400 border-surface-700 hover:text-surface-200 hover:border-surface-600'
+            }`}
+            id="btn-filter-my-shortages"
+            title="Mostrar únicamente las faltas reportadas por mí"
+          >
+            <User size={13} />
+            <span>Mis Demandas</span>
+            {filterReporter === profile.id && (
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+            )}
+          </button>
+        )}
+
+        {/* Filter by Employee / Reporter */}
+        <select
+          className="form-select py-1.5 text-sm max-w-[200px]"
+          value={filterReporter}
+          onChange={(e) => setFilterReporter(e.target.value)}
+          id="filter-reporter"
+        >
+          <option value="">Todos los empleados</option>
+          {reportersList.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.id === profile?.id ? `👤 ${r.nombre} (Tú)` : r.nombre}
+            </option>
+          ))}
+        </select>
+
         <select
           className="form-select py-1.5 text-sm"
           value={filterCategory}

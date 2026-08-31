@@ -13,27 +13,27 @@ import {
   ChevronRight,
   RefreshCw,
   CheckCircle2,
+  MessageSquare,
+  RefreshCw as StatusIcon,
+  Trash2,
+  AlertTriangle,
+  Check,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { supabase } from '@/lib/supabase'
-import { format, isToday, isTomorrow } from 'date-fns'
-import { es } from 'date-fns/locale'
+import {
+  fetchUserNotifications,
+  saveDismissedId,
+  saveDismissedIds,
+  type AppNotification,
+} from '@/lib/notifications'
+import toast from 'react-hot-toast'
 
 interface TopBarProps {
   title: string
   subtitle?: string
   onToggleMobileMenu?: () => void
   isMobileMenuOpen?: boolean
-}
-
-interface NotificationItem {
-  id: string
-  type: 'delivery' | 'shortage' | 'price'
-  title: string
-  subtitle: string
-  date: string
-  link: string
-  urgency?: string
 }
 
 export default function TopBar({
@@ -47,7 +47,7 @@ export default function TopBar({
 
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
-  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loadingNotifications, setLoadingNotifications] = useState(false)
 
   const notifRef = useRef<HTMLDivElement>(null)
@@ -60,85 +60,81 @@ export default function TopBar({
     day: 'numeric',
   })
 
-  // Load real notifications from Supabase
+  // Load notifications from database + listen for real-time changes
   useEffect(() => {
-    loadNotifications()
-  }, [])
+    if (profile?.id) {
+      loadNotifications()
+    }
+
+    // Custom event listener for instant local updates across components
+    const handleUpdate = () => {
+      loadNotifications()
+    }
+    window.addEventListener('garde_notification_update', handleUpdate)
+
+    // Supabase realtime subscription for instant notifications
+    const channel = supabase
+      .channel('realtime_notifications')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'shortage_comments' },
+        () => loadNotifications()
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'stock_shortages' },
+        () => loadNotifications()
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'stock_shortages' },
+        () => loadNotifications()
+      )
+      .subscribe()
+
+    return () => {
+      window.removeEventListener('garde_notification_update', handleUpdate)
+      supabase.removeChannel(channel)
+    }
+  }, [profile?.id, profile?.rol])
 
   const loadNotifications = async () => {
+    if (!profile) return
     setLoadingNotifications(true)
     try {
-      const todayStr = new Date().toISOString().split('T')[0]
-
-      const [deliveriesRes, shortagesRes, priceRes] = await Promise.all([
-        supabase
-          .from('deliveries')
-          .select('id, referencia, fecha_prevista, estado, supplier:suppliers(nombre)')
-          .in('estado', ['Programada', 'En muelle'])
-          .gte('fecha_prevista', todayStr)
-          .order('fecha_prevista', { ascending: true })
-          .limit(4),
-        supabase
-          .from('stock_shortages')
-          .select('id, modelo, especificacion, urgencia, categoria, created_at')
-          .in('urgencia', ['Crítica', 'Alta'])
-          .not('estado', 'in', '(Descartado,Pedido,En Tránsito)')
-          .order('created_at', { ascending: false })
-          .limit(4),
-        supabase
-          .from('price_alerts')
-          .select('id, modelo, competidor, precio_detectado, created_at')
-          .order('created_at', { ascending: false })
-          .limit(3),
-      ])
-
-      const notifs: NotificationItem[] = []
-
-      // Add Deliveries
-      deliveriesRes.data?.forEach((d: any) => {
-        const dDate = new Date(d.fecha_prevista + 'T00:00:00')
-        const tag = isToday(dDate) ? 'Hoy' : isTomorrow(dDate) ? 'Mañana' : d.fecha_prevista
-        notifs.push({
-          id: `del-${d.id}`,
-          type: 'delivery',
-          title: `Descarga: ${d.supplier?.nombre || 'Proveedor'}`,
-          subtitle: `Fecha: ${tag} · Ref: ${d.referencia || 'S/R'} (${d.estado})`,
-          date: d.fecha_prevista,
-          link: '/calendar',
-        })
-      })
-
-      // Add Shortages
-      shortagesRes.data?.forEach((s: any) => {
-        notifs.push({
-          id: `short-${s.id}`,
-          type: 'shortage',
-          title: `Falta urgente: ${s.modelo || s.especificacion || s.categoria}`,
-          subtitle: `Urgencia ${s.urgencia} · ${s.categoria}`,
-          date: s.created_at,
-          link: '/shortages',
-          urgency: s.urgencia,
-        })
-      })
-
-      // Add Price Alerts
-      priceRes.data?.forEach((p: any) => {
-        notifs.push({
-          id: `price-${p.id}`,
-          type: 'price',
-          title: `Agresión: ${p.competidor}`,
-          subtitle: `Modelo ${p.modelo} detectado a ${p.precio_detectado}€`,
-          date: p.created_at,
-          link: '/price-alerts',
-        })
-      })
-
-      setNotifications(notifs)
+      const items = await fetchUserNotifications(profile)
+      setNotifications(items)
     } catch (err) {
       console.error('Error fetching notifications:', err)
     } finally {
       setLoadingNotifications(false)
     }
+  }
+
+  // Dismiss a single notification
+  const handleDismissOne = (e: React.MouseEvent, id: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!profile?.id) return
+
+    saveDismissedId(profile.id, id)
+    setNotifications((prev) => prev.filter((n) => n.id !== id))
+    toast.success('Aviso eliminado', { duration: 1500, position: 'bottom-right' })
+  }
+
+  // Dismiss all currently displayed notifications
+  const handleDismissAll = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!profile?.id || notifications.length === 0) return
+
+    const ids = notifications.map((n) => n.id)
+    saveDismissedIds(profile.id, ids)
+    setNotifications([])
+    toast.success('Todos los avisos han sido eliminados', {
+      duration: 2000,
+      position: 'bottom-right',
+    })
   }
 
   // Close dropdowns on click outside
@@ -170,22 +166,32 @@ export default function TopBar({
 
   return (
     <header className="fixed top-0 right-0 left-0 md:left-[260px] z-30 flex items-center justify-between px-4 sm:px-6 h-16 border-b border-surface-700 bg-surface-900/90 backdrop-blur-md transition-all duration-200">
-      {/* Left side: Hamburger (mobile) + Page info */}
-      <div className="flex items-center gap-3">
+      {/* Left side: Hamburger (mobile) + Logo (mobile) + Page info */}
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
         {onToggleMobileMenu && (
           <button
             onClick={onToggleMobileMenu}
-            className="md:hidden p-2 -ml-1 text-surface-400 hover:text-white rounded-lg hover:bg-surface-800 transition-colors"
+            className="md:hidden p-2 -ml-1 text-surface-400 hover:text-white rounded-lg hover:bg-surface-800 transition-colors flex-shrink-0"
             aria-label="Abrir menú"
           >
             {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         )}
 
-        <div>
-          <h1 className="text-base font-semibold text-white truncate max-w-[180px] sm:max-w-none">{title}</h1>
+        <img
+          src="/logo.png"
+          alt="Grupo Garde"
+          className="h-8 w-8 object-contain rounded-lg bg-white p-0.5 shadow-sm md:hidden flex-shrink-0"
+        />
+
+        <div className="min-w-0">
+          <h1 className="text-sm sm:text-base font-semibold text-white truncate max-w-[150px] sm:max-w-none">
+            {title}
+          </h1>
           {subtitle && (
-            <p className="text-xs text-surface-400 capitalize hidden sm:block truncate">{subtitle}</p>
+            <p className="text-xs text-surface-400 capitalize hidden sm:block truncate">
+              {subtitle}
+            </p>
           )}
         </div>
       </div>
@@ -219,80 +225,133 @@ export default function TopBar({
 
           {/* Notifications Dropdown Modal */}
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl bg-surface-800/95 border border-surface-700 shadow-2xl backdrop-blur-xl z-50 overflow-hidden animate-scale-in">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-surface-700 bg-surface-900/50">
+            <div className="absolute right-0 mt-2 w-84 sm:w-[420px] rounded-xl bg-surface-800/95 border border-surface-700 shadow-2xl backdrop-blur-xl z-50 overflow-hidden animate-scale-in">
+              {/* Dropdown Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-surface-700 bg-surface-900/70">
                 <div className="flex items-center gap-2">
                   <Bell size={16} className="text-brand-400" />
-                  <span className="text-sm font-semibold text-white">Avisos y Alertas</span>
+                  <span className="text-sm font-semibold text-white">Avisos y Novedades</span>
                   <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-brand-500/20 text-brand-300 border border-brand-500/30">
                     {notifications.length}
                   </span>
                 </div>
-                <button
-                  onClick={loadNotifications}
-                  disabled={loadingNotifications}
-                  className="text-surface-400 hover:text-white p-1 rounded-md transition-colors"
-                  title="Actualizar avisos"
-                >
-                  <RefreshCw size={13} className={loadingNotifications ? 'animate-spin' : ''} />
-                </button>
+
+                <div className="flex items-center gap-1.5">
+                  {notifications.length > 0 && (
+                    <button
+                      onClick={handleDismissAll}
+                      className="text-[11px] text-surface-400 hover:text-red-300 px-2 py-1 rounded-md hover:bg-surface-700/60 transition-colors flex items-center gap-1"
+                      title="Eliminar todos los avisos vistos"
+                    >
+                      <Trash2 size={12} />
+                      <span>Limpiar todo</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={loadNotifications}
+                    disabled={loadingNotifications}
+                    className="text-surface-400 hover:text-white p-1 rounded-md hover:bg-surface-700/60 transition-colors"
+                    title="Actualizar avisos"
+                  >
+                    <RefreshCw size={13} className={loadingNotifications ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
 
-              <div className="max-h-80 overflow-y-auto divide-y divide-surface-700/50">
+              {/* Notifications List */}
+              <div className="max-h-96 overflow-y-auto divide-y divide-surface-700/50">
                 {loadingNotifications && notifications.length === 0 ? (
                   <div className="py-8 text-center text-sm text-surface-400">
                     <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                     Cargando avisos...
                   </div>
                 ) : notifications.length === 0 ? (
-                  <div className="py-8 px-4 text-center">
-                    <CheckCircle2 size={24} className="text-green-400 mx-auto mb-2 opacity-80" />
-                    <p className="text-sm font-medium text-surface-200">Todo al día</p>
-                    <p className="text-xs text-surface-500 mt-0.5">No hay alertas urgentes pendientes</p>
+                  <div className="py-10 px-4 text-center">
+                    <CheckCircle2 size={28} className="text-green-400 mx-auto mb-2 opacity-80" />
+                    <p className="text-sm font-medium text-surface-200">¡Todo al día!</p>
+                    <p className="text-xs text-surface-500 mt-0.5">
+                      No tienes avisos ni comentarios nuevos pendientes
+                    </p>
                   </div>
                 ) : (
                   notifications.map((item) => (
-                    <Link
+                    <div
                       key={item.id}
-                      to={item.link}
-                      onClick={() => setShowNotifications(false)}
-                      className="flex items-start gap-3 p-3.5 hover:bg-surface-700/40 transition-colors group"
+                      className="relative flex items-start gap-3 p-3.5 hover:bg-surface-700/40 transition-colors group cursor-pointer"
+                      onClick={() => {
+                        setShowNotifications(false)
+                        navigate(item.link)
+                      }}
                     >
+                      {/* Category Icon */}
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                          item.type === 'delivery'
-                            ? 'bg-blue-500/15 text-blue-400'
-                            : item.type === 'shortage'
-                            ? 'bg-red-500/15 text-red-400'
-                            : 'bg-cyan-500/15 text-cyan-400'
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm ${
+                          item.type === 'comment'
+                            ? 'bg-purple-500/15 text-purple-400 border border-purple-500/20'
+                            : item.type === 'status_change'
+                            ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                            : item.type === 'new_shortage'
+                            ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+                            : item.type === 'delivery'
+                            ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
+                            : 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/20'
                         }`}
                       >
-                        {item.type === 'delivery' && <Truck size={16} />}
-                        {item.type === 'shortage' && <Package size={16} />}
-                        {item.type === 'price' && <TrendingDown size={16} />}
+                        {item.type === 'comment' && <MessageSquare size={15} />}
+                        {item.type === 'status_change' && <StatusIcon size={15} />}
+                        {item.type === 'new_shortage' && <AlertTriangle size={15} />}
+                        {item.type === 'delivery' && <Truck size={15} />}
+                        {item.type === 'price' && <TrendingDown size={15} />}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-surface-100 group-hover:text-brand-300 transition-colors truncate">
-                          {item.title}
-                        </p>
-                        <p className="text-[11px] text-surface-400 mt-0.5 line-clamp-1">
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 pr-6">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-surface-100 group-hover:text-brand-300 transition-colors truncate">
+                            {item.title}
+                          </p>
+                          <span className="text-[10px] text-surface-500 whitespace-nowrap">
+                            {item.timeAgo}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-surface-300 mt-0.5 truncate">
                           {item.subtitle}
                         </p>
+                        {item.detail && (
+                          <p className="text-[11px] text-surface-400 italic bg-surface-900/40 p-1.5 rounded mt-1 border border-surface-700/40 line-clamp-2">
+                            {item.detail}
+                          </p>
+                        )}
                       </div>
-                      <ChevronRight size={14} className="text-surface-600 group-hover:text-surface-300 flex-shrink-0 self-center" />
-                    </Link>
+
+                      {/* Individual Delete / Dismiss Button */}
+                      <button
+                        onClick={(e) => handleDismissOne(e, item.id)}
+                        className="absolute right-2.5 top-3 p-1 text-surface-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors opacity-70 group-hover:opacity-100"
+                        title="Eliminar este aviso"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   ))
                 )}
               </div>
 
+              {/* Dropdown Footer */}
               {notifications.length > 0 && (
-                <div className="p-2 border-t border-surface-700 bg-surface-900/60 text-center">
+                <div className="p-2.5 border-t border-surface-700 bg-surface-900/70 flex items-center justify-between">
+                  <button
+                    onClick={handleDismissAll}
+                    className="text-xs text-surface-400 hover:text-red-300 transition-colors flex items-center gap-1 px-2 py-1"
+                  >
+                    <Trash2 size={12} /> Eliminar vistos
+                  </button>
                   <Link
-                    to="/dashboard"
+                    to="/shortages"
                     onClick={() => setShowNotifications(false)}
                     className="text-xs font-medium text-brand-400 hover:text-brand-300 transition-colors inline-flex items-center gap-1 py-1"
                   >
-                    Ver panel general <ChevronRight size={12} />
+                    Ver todas las faltas <ChevronRight size={12} />
                   </Link>
                 </div>
               )}

@@ -48,7 +48,7 @@ export default function Layout({ title, subtitle, children }: LayoutProps) {
           isMobileMenuOpen={mobileMenuOpen}
         />
 
-        <main className="flex-1 p-3.5 sm:p-6 pt-20 pb-24 md:pb-6 animate-fade-in max-w-7xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 pt-20 sm:pt-24 pb-24 md:pb-8 animate-fade-in max-w-7xl w-full mx-auto">
           {children}
         </main>
       </div>

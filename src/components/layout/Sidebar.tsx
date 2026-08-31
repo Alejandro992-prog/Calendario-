@@ -99,14 +99,18 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         }`}
       >
         {/* Logo & Close button */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-700 h-16">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-cyan-500 shadow-lg">
-              <Zap size={18} className="text-white" />
+        <div className="flex items-center justify-between px-4 py-3 border-b border-surface-700 h-16 bg-surface-900/80">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center p-1 shadow-md shadow-brand-500/10 flex-shrink-0">
+              <img
+                src="/logo.png"
+                alt="Grupo Garde"
+                className="w-full h-full object-contain"
+              />
             </div>
-            <div>
-              <span className="text-sm font-bold text-white block leading-tight">Garde</span>
-              <span className="text-xs text-surface-400 leading-tight">Electrodomésticos</span>
+            <div className="min-w-0">
+              <span className="text-sm font-bold text-white block leading-tight truncate">Grupo Garde</span>
+              <span className="text-[11px] text-surface-400 leading-tight block truncate">Electrodomésticos</span>
             </div>
           </div>
 
