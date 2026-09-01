@@ -169,145 +169,117 @@ const STOPWORDS = new Set([
 ])
 
 /**
- * Words that indicate the start of the footer / end of product items
- */
-const FOOTER_CUTOFF_KEYWORDS = [
-  'TOTAL BULTOS',
-  'TOTAL ALBARAN',
-  'TOTAL ALBARÁN',
-  'TOTAL FACTURA',
-  'TOTAL GENERAL',
-  'TOTAL PALETS',
-  'TOTAL PESO',
-  'TOTAL ARTICULOS',
-  'BASE IMPONIBLE',
-  'SUBTOTAL',
-  'FIRMA Y SELLO',
-  'CONFORME CLIENTE',
-  'OBSERVACIONES:',
-  'CONDICIONES DE ENTREGA',
-  'FORMA DE PAGO',
-  'RECIBIDO POR',
-]
-
-/**
- * Words that indicate table headers (where the item grid begins)
- */
-const HEADER_KEYWORDS = [
-  'ARTICULO',
-  'ARTÍCULO',
-  'MODELO',
-  'CODIGO',
-  'CÓDIGO',
-  'DESCRIPCION',
-  'DESCRIPCIÓN',
-  'CANTIDAD',
-  'UNIDADES',
-  'UDS',
-  'EAN',
-  'REFERENCIA',
-]
-
-/**
  * Checks if a token matches the strict criteria for an appliance model:
  * 1. Between 3 and 32 characters
- * 2. Contains alphanumeric characters, hyphens, slashes, or dots
- * 3. Must contain BOTH letters and digits (e.g. 3KFE662WI, RB34T602ESA, WW90T534DTW)
- *    OR match known appliance model patterns
- * 4. Must not be in STOPWORDS dictionary
- * 5. Must not be a date, phone number, CIF, or postal code
+ * 2. Must not be a CIF, NIF, DNI, Postal code, Phone number, or Date
+ * 3. Must not be in STOPWORDS dictionary
+ * 4. Must have letters and numbers OR match typical appliance model patterns
  */
 function isValidApplianceModel(token: string): boolean {
   if (!token || token.length < 3 || token.length > 32) return false
 
-  const clean = token.toUpperCase().trim()
+  const clean = token.toUpperCase().trim().replace(/^[#\-:.]+|[#\-:.]+$/g, '')
+  if (clean.length < 3) return false
 
   // 1. Stopwords check
   if (STOPWORDS.has(clean)) return false
 
-  // 2. Reject common patterns that are NOT models:
-  // Postal codes (e.g. 28001, 08020)
+  // 2. Reject CIF / NIF / NIE / VAT (e.g. B92705987, A12345678, 12345678Z, B-92705987, ESB92705987)
+  if (
+    /^[A-HJ-NP-SUVW]\d{7,8}[0-9A-J]?$/i.test(clean) ||
+    /^\d{8}[A-Z]$/i.test(clean) ||
+    /^[XYZ]\d{7,8}[A-Z]$/i.test(clean) ||
+    /^ES[A-Z0-9]{8,10}$/i.test(clean)
+  ) {
+    return false
+  }
+
+  // 3. Reject Postal codes (5 digits)
   if (/^\d{5}$/.test(clean)) return false
-  // Dates (e.g. 01/09/2026, 2026-09-01, 01-09-26)
+
+  // 4. Reject Dates (e.g. 01/09/2026, 27/08/26, 2026-09-01)
   if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(clean) || /^\d{4}[/-]\d{1,2}[/-]\d{1,2}$/.test(clean)) return false
-  // Phone numbers (e.g. 912345678, +34912345678)
+
+  // 5. Reject Phone numbers
   if (/^(\+34)?[6789]\d{8}$/.test(clean)) return false
-  // CIF / NIF / NIE (e.g. B12345678, 12345678A, X1234567B)
-  if (/^[A-HJ-NP-SUVW]\d{7}[0-9A-J]$/.test(clean) || /^\d{8}[A-Z]$/.test(clean) || /^[XYZ]\d{7}[A-Z]$/.test(clean)) return false
-  // Prices / Percentages / Currency
+
+  // 6. Reject Price / Percentages / Currency
   if (/^\d+([.,]\d+)?\s*(€|EUR|%|KG|KGS)?$/.test(clean)) return false
-  // Pure dictionary words (all letters without digits) are rejected as models
+
+  // 7. Pure words with only letters (no digits) are NOT appliance models
   if (!/[0-9]/.test(clean)) return false
-  // Must have at least one letter (or be a recognized 10+ digit EAN / barcode / part number)
+
+  // 8. Pure numbers without letters (unless long EAN-like 12-14 digits) are NOT models
   if (!/[A-Z]/.test(clean) && clean.length < 10) return false
 
-  // 3. Positive match: Has valid characters for appliance models
+  // 9. Valid appliance model pattern (letters, numbers, hyphens, slashes)
   return /^[A-Z0-9][A-Z0-9\-_./]{2,30}$/.test(clean)
 }
 
 /**
- * Validates whether a token represents a valid EAN-13 or EAN-8 barcode
+ * Validates whether a token represents a valid EAN-13, EAN-14 or EAN-8 barcode
  */
 function isValidEan(token: string): boolean {
   const digits = token.replace(/\D/g, '')
-  if (digits.length !== 8 && digits.length !== 12 && digits.length !== 13 && digits.length !== 14) {
-    return false
-  }
-  // Standard EAN starts with valid country codes (e.g. 84 for Spain, 40-44 for Germany, etc.)
-  return true
+  return digits.length === 8 || digits.length === 12 || digits.length === 13 || digits.length === 14
 }
 
 /**
- * Extract items from structured lines with table boundary detection & strict fingerprinting
+ * Checks if a full line is pure header/footer/metadata (and not an article row)
+ */
+function isMetadataLine(text: string): boolean {
+  const upper = text.toUpperCase()
+
+  // Common header lines with addresses, CIFs, invoices, or signatures
+  if (
+    upper.includes('ALBARAN') ||
+    upper.includes('ALBARÁN') ||
+    upper.includes('FACTURA') ||
+    upper.includes('DATOS DEL CLIENTE') ||
+    upper.includes('DATOS FISCALES') ||
+    upper.includes('FORMA DE PAGO') ||
+    upper.includes('VENCIMIENTO') ||
+    upper.includes('BASE IMPONIBLE') ||
+    upper.includes('TOTAL FACTURA') ||
+    upper.includes('TOTAL GENERAL') ||
+    upper.includes('FIRMA Y SELLO') ||
+    upper.includes('CONFORME CLIENTE') ||
+    upper.includes('PAGINA ') ||
+    upper.includes('PÁGINA ') ||
+    upper.includes('TEL.') ||
+    upper.includes('TELÉFONO') ||
+    upper.includes('C.I.F.') ||
+    upper.includes('N.I.F.') ||
+    upper.includes('IBAN:')
+  ) {
+    // Only metadata if it doesn't contain a real appliance model or EAN code
+    const hasEan = /\b(84\d{11}|40\d{11}|88\d{11}|\d{13})\b/.test(text)
+    if (!hasEan) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Extract items from structured lines with robust row pattern detection
  */
 function extractItemsFromLines(lines: TextLine[]): ParsedItem[] {
   const items: ParsedItem[] = []
   if (!lines.length) return items
 
-  // 1. Detect Table Boundaries (Header row & Footer cutoff)
-  let tableStarted = false
-  let tableEnded = false
-
-  // Check if document has an explicit header row
-  const hasExplicitHeader = lines.some((l) => {
-    const textUpper = l.text.toUpperCase()
-    return HEADER_KEYWORDS.filter((k) => textUpper.includes(k)).length >= 2
-  })
-
-  // Quantity regex: matches 1-4 digit integers optionally followed by units
-  const qtyRegex = /\b(\d{1,4})\s*(ud|uds|pcs|unid|unidades|u\b)?/i
   const eanRegex = /\b(\d{12,14})\b/
+  const qtyRegex = /\b(\d{1,4})\s*(ud|uds|pcs|unid|unidades|u\b)?/i
 
   for (const line of lines) {
     const text = line.text.trim()
-    if (!text || text.length < 3) continue
+    if (!text || text.length < 4) continue
 
-    const upper = text.toUpperCase()
+    // Skip pure metadata / header / footer lines
+    if (isMetadataLine(text)) continue
 
-    // 2. Check for Table Start if not yet started
-    if (!tableStarted && hasExplicitHeader) {
-      const matchCount = HEADER_KEYWORDS.filter((k) => upper.includes(k)).length
-      if (matchCount >= 2) {
-        tableStarted = true
-        continue // Skip header line itself
-      }
-    }
-
-    // 3. Check for Footer Cutoff
-    if (FOOTER_CUTOFF_KEYWORDS.some((kw) => upper.includes(kw))) {
-      tableEnded = true
-      break // Stop processing, we reached document totals / footer
-    }
-
-    // If there was no explicit header line found in the document, treat all lines as potential rows
-    if (!hasExplicitHeader) {
-      tableStarted = true
-    }
-
-    // Skip lines before table header
-    if (!tableStarted) continue
-
-    // 4. Extract tokens sorted by X-coordinate
+    // Split text into tokens sorted by X-coordinate
     const sortedParts = line.items
       .map((i) => ({ text: i.str.trim(), x: i.x, width: i.width }))
       .filter((p) => p.text.length > 0)
@@ -318,20 +290,20 @@ function extractItemsFromLines(lines: TextLine[]): ParsedItem[] {
     const eanMatch = text.match(eanRegex)
     const eanStr = eanMatch && isValidEan(eanMatch[1]) ? eanMatch[1] : undefined
 
-    // Find candidate Quantity
+    // Find candidate Quantity (e.g. "1", "2 UDS", "12")
     let detectedQty = 1
-    let foundQtyToken = false
+    let foundQty = false
 
-    // Look for quantity from the line parts
     for (let i = sortedParts.length - 1; i >= 0; i--) {
       const part = sortedParts[i].text
-      // If token is purely a small integer (1 to 500) or like "2 UDS"
+      // Match integer quantity 1-500
       const m = part.match(/^(\d{1,4})\s*(ud|uds|pcs|unid|u)?$/i)
       if (m) {
         const num = parseInt(m[1], 10)
-        if (num > 0 && num <= 500) {
+        // Ensure it's not a year (like 2026), postal code (28001), or large ref
+        if (num > 0 && num <= 500 && num !== 2024 && num !== 2025 && num !== 2026) {
           detectedQty = num
-          foundQtyToken = true
+          foundQty = true
           break
         }
       }
@@ -348,15 +320,15 @@ function extractItemsFromLines(lines: TextLine[]): ParsedItem[] {
       // Skip EAN token
       if (eanStr && part === eanStr) continue
 
-      // Skip Quantity token if isolated
+      // Skip Quantity token
       if (/^\d{1,4}(\s*(ud|uds|pcs|unid|u))?$/i.test(part)) continue
 
-      // Skip Price tokens (e.g. "120,50", "21%", "0.00")
+      // Skip Prices (e.g. "120,50", "21%", "0.00")
       if (/^\d+[,.]\d{2}\s*€?$/.test(part) || /^\d+[,.]\d{1,2}%$/.test(part)) continue
 
       // Check if this token is a valid model
       if (!foundModel && isValidApplianceModel(part)) {
-        foundModel = part.toUpperCase()
+        foundModel = part.toUpperCase().replace(/^[#\-:.]+|[#\-:.]+$/g, '')
         continue
       }
 
@@ -366,25 +338,43 @@ function extractItemsFromLines(lines: TextLine[]): ParsedItem[] {
       }
     }
 
-    // If a model was found (OR an EAN with description), record the item
-    if (foundModel || (eanStr && descriptionTokens.length > 0)) {
+    // If no single token matched, check if adjacent tokens form a model (e.g. "HLB 840 P", "RB 34 T")
+    if (!foundModel && sortedParts.length >= 2) {
+      for (let i = 0; i < sortedParts.length - 1; i++) {
+        const combo = `${sortedParts[i].text}${sortedParts[i + 1].text}`
+        if (isValidApplianceModel(combo)) {
+          foundModel = `${sortedParts[i].text} ${sortedParts[i + 1].text}`.toUpperCase()
+          descriptionTokens = sortedParts
+            .slice(i + 2)
+            .map((p) => p.text)
+            .filter((t) => !STOPWORDS.has(t.toUpperCase()))
+          break
+        }
+      }
+    }
+
+    // Only record if we found a valid Model OR a valid EAN
+    if (foundModel || eanStr) {
       const finalModel = foundModel || (eanStr ? `EAN-${eanStr}` : '')
       const finalDesc = descriptionTokens
         .join(' ')
         .replace(finalModel, '')
         .trim()
 
-      items.push({
-        modelo: finalModel,
-        descripcion: finalDesc || undefined,
-        ean: eanStr,
-        cantidad: detectedQty,
-        fuente: 'pdf',
-        raw_data: {
-          lineText: text,
-          hasQty: foundQtyToken,
-        },
-      })
+      // Ensure model is not an accidental line number or single digit
+      if (finalModel.length >= 3) {
+        items.push({
+          modelo: finalModel,
+          descripcion: finalDesc && finalDesc.length > 2 ? finalDesc : undefined,
+          ean: eanStr,
+          cantidad: detectedQty,
+          fuente: 'pdf',
+          raw_data: {
+            lineText: text,
+            foundQty,
+          },
+        })
+      }
     }
   }
 
@@ -396,16 +386,12 @@ function extractItemsFromLines(lines: TextLine[]): ParsedItem[] {
  */
 function extractFallbackFromLines(lines: TextLine[]): ParsedItem[] {
   const items: ParsedItem[] = []
-  // Matches strict alphanumeric models (must have letters and digits, min 4 chars)
-  const modelPattern = /\b([A-Z0-9][A-Z0-9\-_./]{3,24})\b/g
+  // Matches strict alphanumeric models (must have letters and digits, min 3 chars)
+  const modelPattern = /\b([A-Z0-9][A-Z0-9\-_./]{2,24})\b/g
 
   for (const line of lines) {
     const text = line.text.trim()
-    const upper = text.toUpperCase()
-
-    // Skip footer / header text
-    if (FOOTER_CUTOFF_KEYWORDS.some((kw) => upper.includes(kw))) break
-    if (STOPWORDS.has(upper)) continue
+    if (isMetadataLine(text)) continue
 
     const matches = Array.from(text.matchAll(modelPattern))
     for (const match of matches) {
@@ -479,22 +465,17 @@ function extractBroadFallback(lines: TextLine[]): ParsedItem[] {
   for (const line of lines) {
     const text = line.text.trim()
     if (!text || text.length < 5) continue
+    if (isMetadataLine(text)) continue
 
-    const upper = text.toUpperCase()
-    if (FOOTER_CUTOFF_KEYWORDS.some((kw) => upper.includes(kw))) break
-    if (STOPWORDS.has(upper)) continue
-
-    // Extract any token that contains at least one digit and letters
+    // Extract any token that satisfies isValidApplianceModel
     const tokens = text.split(/\s+/)
-    const candidate = tokens.find(
-      (t) => t.length >= 3 && t.length <= 25 && /[0-9]/.test(t) && /[A-Za-z]/.test(t) && !STOPWORDS.has(t.toUpperCase())
-    )
+    const candidate = tokens.find((t) => isValidApplianceModel(t))
 
     if (candidate) {
       const desc = text.replace(candidate, '').trim()
       items.push({
         modelo: candidate.toUpperCase(),
-        descripcion: desc || undefined,
+        descripcion: desc && desc.length > 2 ? desc : undefined,
         cantidad: 1,
         fuente: 'pdf',
         raw_data: { broadLine: text },
@@ -504,5 +485,6 @@ function extractBroadFallback(lines: TextLine[]): ParsedItem[] {
 
   return items
 }
+
 
 
