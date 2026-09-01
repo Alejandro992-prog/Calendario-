@@ -1,24 +1,11 @@
 import type { ParsedItem } from '@/types'
 import { extractFromImage } from './ocr'
+import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url'
 
-/**
- * Configure PDF.js worker securely with fallback CDN
- */
-async function getPdfJs() {
-  const pdfjsLib = await import('pdfjs-dist')
-  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.js',
-        import.meta.url
-      ).toString()
-    } catch {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${
-        pdfjsLib.version || '3.11.174'
-      }/pdf.worker.min.js`
-    }
-  }
-  return pdfjsLib
+// Set worker source using Vite's ?url asset import
+if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 }
 
 interface PositionedText {
@@ -40,7 +27,6 @@ interface TextLine {
  * Supports structured text PDFs (with visual line grouping) and scanned PDFs (via OCR fallback).
  */
 export async function parsePDF(file: File): Promise<ParsedItem[]> {
-  const pdfjsLib = await getPdfJs()
   const buffer = await file.arrayBuffer()
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(buffer),
@@ -86,17 +72,26 @@ export async function parsePDF(file: File): Promise<ParsedItem[]> {
     return extractViaPdfOcr(pdf)
   }
 
-  const parsedItems = extractItemsFromLines(allLines)
+  // Strategy 1: Strict Tabular & Boundary extraction
+  let parsedItems = extractItemsFromLines(allLines)
 
-  // If text was extracted but no items were recognized with strict line heuristics,
-  // try pattern & OCR fallback
+  // Strategy 2: If strict mode found 0 items, try relaxed pattern matching
   if (parsedItems.length === 0) {
-    const fallbackItems = extractFallbackFromLines(allLines)
-    if (fallbackItems.length > 0) {
-      return fallbackItems
+    parsedItems = extractFallbackFromLines(allLines)
+  }
+
+  // Strategy 3: If still 0 items, try OCR on the rendered PDF pages
+  if (parsedItems.length === 0) {
+    try {
+      parsedItems = await extractViaPdfOcr(pdf)
+    } catch {
+      // OCR fallback failed or wasn't applicable
     }
-    // Try OCR as last resort
-    return extractViaPdfOcr(pdf)
+  }
+
+  // Strategy 4: If all heuristics found 0 items, extract any candidate text line with numbers
+  if (parsedItems.length === 0) {
+    parsedItems = extractBroadFallback(allLines)
   }
 
   return parsedItems
@@ -474,4 +469,40 @@ async function extractViaPdfOcr(pdf: any): Promise<ParsedItem[]> {
 
   return allOcrItems
 }
+
+/**
+ * Last-resort broad extractor for non-standard PDF formats
+ */
+function extractBroadFallback(lines: TextLine[]): ParsedItem[] {
+  const items: ParsedItem[] = []
+
+  for (const line of lines) {
+    const text = line.text.trim()
+    if (!text || text.length < 5) continue
+
+    const upper = text.toUpperCase()
+    if (FOOTER_CUTOFF_KEYWORDS.some((kw) => upper.includes(kw))) break
+    if (STOPWORDS.has(upper)) continue
+
+    // Extract any token that contains at least one digit and letters
+    const tokens = text.split(/\s+/)
+    const candidate = tokens.find(
+      (t) => t.length >= 3 && t.length <= 25 && /[0-9]/.test(t) && /[A-Za-z]/.test(t) && !STOPWORDS.has(t.toUpperCase())
+    )
+
+    if (candidate) {
+      const desc = text.replace(candidate, '').trim()
+      items.push({
+        modelo: candidate.toUpperCase(),
+        descripcion: desc || undefined,
+        cantidad: 1,
+        fuente: 'pdf',
+        raw_data: { broadLine: text },
+      })
+    }
+  }
+
+  return items
+}
+
 
