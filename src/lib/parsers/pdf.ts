@@ -469,10 +469,8 @@ async function extractViaPdfOcr(pdf: any): Promise<ParsedItem[]> {
 
     if (blob) {
       const ocrResult = await extractFromImage(blob)
-      if (ocrResult.items.length > 0) {
-        // Filter OCR results through the same strict model validator
-        const filteredOcr = ocrResult.items.filter((item) => isStrictApplianceModel(item.modelo))
-        allOcrItems.push(...(filteredOcr.length > 0 ? filteredOcr : ocrResult.items))
+      if (ocrResult.items && ocrResult.items.length > 0) {
+        allOcrItems.push(...ocrResult.items)
       }
     }
   }

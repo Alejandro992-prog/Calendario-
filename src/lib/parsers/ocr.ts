@@ -115,31 +115,85 @@ async function extractWithTesseract(blob: Blob): Promise<OcrResult> {
 }
 
 /**
- * Simple heuristic parser for OCR text output.
+ * Intelligent heuristic parser for OCR text output (scanned PDFs & image screenshots).
  */
 function parseTextHeuristic(text: string): ParsedItem[] {
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 3)
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 5)
   const items: ParsedItem[] = []
-  const eanPattern = /\b\d{13}\b/
-  const qtyPattern = /\b(\d{1,4})\s*(ud|uds|pcs|unid)?$/i
+
+  const genericWords = new Set([
+    'FACTURA', 'ALBARAN', 'ALBARÁN', 'CLIENTE', 'FECHA', 'TOTAL', 'SUBTOTAL', 'BASE',
+    'IVA', 'IMPORTE', 'PRECIO', 'PAGINA', 'PÁGINA', 'ARTICULO', 'ARTÍCULO', 'CANTIDAD',
+    'DESCRIPCION', 'DESCRIPCIÓN', 'DESCUENTOS', 'NETO', 'VENCIMIENTO', 'VENCIMIENTOS',
+    'EFECTIVO', 'REMITENTE', 'DESTINATARIO', 'TELÉFONO', 'TELEFONO', 'DEVOLUCION',
+    'DEVOLUCIÓN', 'RECLICLAJE', 'GARDE', 'LIDERCADENA', 'SCANNED', 'CAMSCANNER'
+  ])
 
   for (const line of lines) {
-    const eanMatch = line.match(eanPattern)
-    const qtyMatch = line.match(qtyPattern)
-    
-    // Look for model-like codes: at least 4 chars, contains letters and numbers
-    const modelMatch = line.match(/\b([A-Z][A-Z0-9\-\_]{3,19})\b/)
-    
-    if (!modelMatch) continue
+    const upper = line.toUpperCase()
 
-    items.push({
-      modelo: modelMatch[1],
-      descripcion: line.replace(modelMatch[0], '').replace(eanMatch?.[0] || '', '').trim() || undefined,
-      ean: eanMatch ? eanMatch[0] : undefined,
-      cantidad: qtyMatch ? parseInt(qtyMatch[1], 10) : 1,
-      fuente: 'ocr',
-      raw_data: { raw_line: line, ocr_method: 'tesseract' },
-    })
+    // Skip pure header, footer or legal lines
+    if (
+      upper.startsWith('FACTURA') ||
+      upper.startsWith('ALBARAN') ||
+      upper.startsWith('FECHA') ||
+      upper.startsWith('CLIENTE') ||
+      upper.startsWith('TOTAL') ||
+      upper.startsWith('BASE') ||
+      upper.startsWith('SCANNED') ||
+      upper.startsWith('INCLUIDO TASA') ||
+      upper.startsWith('NO SE ACEPTARA') ||
+      upper.startsWith('PROTECCIÓN DE DATOS') ||
+      upper.includes('REGISTRO MERCANTIL')
+    ) {
+      continue
+    }
+
+    // Clean line from currency and tax percentages (e.g. "80.59 €", "21%", "0%")
+    const cleanLine = line
+      .replace(/\b\d+[,.]\d{2}\s*€?\b/g, '')
+      .replace(/\b\d+%\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    // Match real model codes (e.g. MIG2033, DFS05013X, 3KFE662WI, 10107017, 02502001, KFI960, SFB8028)
+    const modelMatch = cleanLine.match(
+      /\b([A-Z]{2,4}\d{3,5}[A-Z]?|[A-Z0-9]{2,}\d[A-Z0-9\-_./]*|\b[A-Z]{2,4}\s+\d{3,4}\b|\b\d{7,10}\b)\b/i
+    )
+
+    // Match leading article code if line starts with 4-6 digit SKU (e.g. 58016, 62524, 11917, 26688)
+    const leadingSkuMatch = cleanLine.match(/^(\d{4,8})\s+(.*)$/)
+
+    // Match quantity (an isolated integer 1-500 near the middle or end of the line)
+    const qtyMatch = cleanLine.match(/\b([1-9]\d{0,2})\s*(?:ud|uds|pcs|unid)?(?:\s*$|\s+[A-Z])/i)
+    const quantity = qtyMatch ? parseInt(qtyMatch[1], 10) : 1
+
+    let finalModel = ''
+    let finalDesc = ''
+
+    if (modelMatch && !genericWords.has(modelMatch[1].toUpperCase())) {
+      finalModel = modelMatch[1].toUpperCase().trim()
+      finalDesc = cleanLine
+        .replace(modelMatch[0], '')
+        .replace(new RegExp(`\\b${quantity}\\b`), '')
+        .replace(/^\d{4,8}\s+/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    } else if (leadingSkuMatch) {
+      finalModel = leadingSkuMatch[1]
+      finalDesc = leadingSkuMatch[2].replace(new RegExp(`\\b${quantity}\\b`), '').trim()
+    }
+
+    // If we have a valid non-generic model and some description
+    if (finalModel && finalModel.length >= 3 && !genericWords.has(finalModel)) {
+      items.push({
+        modelo: finalModel,
+        descripcion: finalDesc && finalDesc.length > 2 ? finalDesc : undefined,
+        cantidad: quantity > 0 && quantity <= 500 ? quantity : 1,
+        fuente: 'ocr',
+        raw_data: { raw_line: line, cleanLine, ocr_method: 'tesseract' },
+      })
+    }
   }
 
   return items
