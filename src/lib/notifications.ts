@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import type { Profile } from '@/types'
-import { isToday, isTomorrow, formatDistanceToNow } from 'date-fns'
+import { isToday, isTomorrow, formatDistanceToNow, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 export interface AppNotification {
@@ -18,63 +18,137 @@ export interface AppNotification {
 
 const STORAGE_KEY_PREFIX = 'garde_dismissed_notifs_'
 
+// In-memory cache for fast synchronous access
+const memoryDismissedSets = new Map<string, Set<string>>()
+
+/**
+ * Gets currently dismissed notification IDs for a user from memory and localStorage.
+ */
 export function getDismissedIds(userId: string): Set<string> {
+  if (memoryDismissedSets.has(userId)) {
+    return memoryDismissedSets.get(userId)!
+  }
+
   try {
     const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${userId}`)
-    if (!raw) return new Set()
-    const arr = JSON.parse(raw)
-    return new Set(Array.isArray(arr) ? arr : [])
+    let set: Set<string>
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      set = new Set(Array.isArray(parsed) ? parsed : [])
+    } else {
+      set = new Set()
+    }
+    memoryDismissedSets.set(userId, set)
+    return set
   } catch {
-    return new Set()
+    const set = new Set<string>()
+    memoryDismissedSets.set(userId, set)
+    return set
   }
 }
 
-export function saveDismissedId(userId: string, notifId: string) {
+/**
+ * Merges cloud dismissed IDs with local cache and saves back to both.
+ */
+export async function syncCloudDismissedIds(userId: string): Promise<Set<string>> {
+  const localSet = getDismissedIds(userId)
+
   try {
-    const set = getDismissedIds(userId)
-    set.add(notifId)
-    // Keep max 500 dismissed IDs to prevent localStorage growth
-    const arr = Array.from(set).slice(-500)
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}${userId}`, JSON.stringify(arr))
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user && user.id === userId) {
+      const cloudDismissed: string[] = user.user_metadata?.dismissed_notifs || []
+      if (Array.isArray(cloudDismissed)) {
+        let changed = false
+        cloudDismissed.forEach((id) => {
+          if (!localSet.has(id)) {
+            localSet.add(id)
+            changed = true
+          }
+        })
+
+        if (changed || localSet.size > cloudDismissed.length) {
+          const arr = Array.from(localSet).slice(-2000)
+          localStorage.setItem(`${STORAGE_KEY_PREFIX}${userId}`, JSON.stringify(arr))
+          // Sync back union to cloud if local had more items
+          if (localSet.size > cloudDismissed.length) {
+            await supabase.auth.updateUser({
+              data: { dismissed_notifs: arr }
+            })
+          }
+        }
+      }
+    }
   } catch (err) {
-    console.error('Error saving dismissed notification:', err)
+    console.warn('Error syncing cloud dismissed notifications:', err)
   }
+
+  return localSet
 }
 
-export function saveDismissedIds(userId: string, notifIds: string[]) {
+let syncTimeout: any = null
+
+function persistDismissedSet(userId: string, set: Set<string>) {
   try {
-    const set = getDismissedIds(userId)
-    notifIds.forEach((id) => set.add(id))
-    const arr = Array.from(set).slice(-500)
+    // Keep max 2000 dismissed IDs
+    const arr = Array.from(set).slice(-2000)
+    memoryDismissedSets.set(userId, set)
     localStorage.setItem(`${STORAGE_KEY_PREFIX}${userId}`, JSON.stringify(arr))
+
+    // Debounced asynchronous cloud persistence to user_metadata
+    if (syncTimeout) clearTimeout(syncTimeout)
+    syncTimeout = setTimeout(async () => {
+      try {
+        await supabase.auth.updateUser({
+          data: { dismissed_notifs: arr }
+        })
+      } catch (err) {
+        console.warn('Could not sync dismissed notifs to cloud:', err)
+      }
+    }, 800)
   } catch (err) {
     console.error('Error saving dismissed notifications:', err)
   }
 }
 
+export function saveDismissedId(userId: string, notifId: string) {
+  const set = getDismissedIds(userId)
+  set.add(notifId)
+  persistDismissedSet(userId, set)
+}
+
+export function saveDismissedIds(userId: string, notifIds: string[]) {
+  const set = getDismissedIds(userId)
+  notifIds.forEach((id) => set.add(id))
+  persistDismissedSet(userId, set)
+}
+
 /**
  * Loads and aggregates all actionable notifications for the current user:
- * - Comments made by colleagues on shortages the user reported or manages
- * - Status changes made by Compras/Admin on shortages the user reported
- * - New urgent shortages reported by colleagues (for Admin and Compras roles)
- * - Upcoming deliveries for today/tomorrow
- * - Price aggression alerts
+ * - Comments made by colleagues on shortages the user reported or manages (last 30 days)
+ * - Status changes made by Compras/Admin on shortages the user reported (last 30 days)
+ * - New urgent shortages reported by colleagues (for Admin and Compras roles, last 30 days)
+ * - Upcoming deliveries for today/tomorrow onwards
+ * - Price aggression alerts (last 30 days)
  */
 export async function fetchUserNotifications(profile: Profile | null): Promise<AppNotification[]> {
   if (!profile) return []
 
   const userId = profile.id
   const userRole = profile.rol
-  const dismissedSet = getDismissedIds(userId)
+
+  // Sync cloud + local dismissed notifications
+  const dismissedSet = await syncCloudDismissedIds(userId)
   const notifications: AppNotification[] = []
 
   try {
     const todayStr = new Date().toISOString().split('T')[0]
+    // Filter only events from the last 30 days to avoid ancient historical records endlessly resurfacing
+    const thirtyDaysAgoStr = subDays(new Date(), 30).toISOString()
 
     // Fetch in parallel
     const [commentsRes, myShortagesRes, newShortagesRes, deliveriesRes, priceRes] =
       await Promise.all([
-        // 1. Comments on shortages (recent 30 comments)
+        // 1. Comments on shortages (recent 30 comments from last 30 days)
         supabase
           .from('shortage_comments')
           .select(`
@@ -85,10 +159,11 @@ export async function fetchUserNotifications(profile: Profile | null): Promise<A
             autor:profiles!autor_id(nombre_completo, cargo, rol),
             shortage:stock_shortages(id, modelo, especificacion, categoria, reportado_por)
           `)
+          .gte('created_at', thirtyDaysAgoStr)
           .order('created_at', { ascending: false })
           .limit(30),
 
-        // 2. Shortages reported by ME that have been managed or updated
+        // 2. Shortages reported by ME that have been managed or updated in last 30 days
         supabase
           .from('stock_shortages')
           .select(`
@@ -105,10 +180,11 @@ export async function fetchUserNotifications(profile: Profile | null): Promise<A
           `)
           .eq('reportado_por', userId)
           .not('gestionado_por', 'is', null)
+          .gte('updated_at', thirtyDaysAgoStr)
           .order('updated_at', { ascending: false })
           .limit(20),
 
-        // 3. New shortages reported by other colleagues (for Compras & Admin)
+        // 3. New shortages reported by other colleagues (for Compras & Admin) in last 30 days
         userRole === 'Administrador' || userRole === 'Compras'
           ? supabase
               .from('stock_shortages')
@@ -124,9 +200,10 @@ export async function fetchUserNotifications(profile: Profile | null): Promise<A
                 reporter:profiles!reportado_por(nombre_completo, cargo)
               `)
               .neq('reportado_por', userId)
-              .not('estado', 'in', '(Descartado,Pedido,En Tránsito)')
+              .not('estado', 'in', '("Descartado","Pedido","En Tránsito")')
+              .gte('created_at', thirtyDaysAgoStr)
               .order('created_at', { ascending: false })
-              .limit(15)
+              .limit(20)
           : Promise.resolve({ data: [] }),
 
         // 4. Upcoming deliveries
@@ -136,14 +213,15 @@ export async function fetchUserNotifications(profile: Profile | null): Promise<A
           .in('estado', ['Programada', 'En muelle'])
           .gte('fecha_prevista', todayStr)
           .order('fecha_prevista', { ascending: true })
-          .limit(6),
+          .limit(10),
 
-        // 5. Price alerts
+        // 5. Price alerts from last 30 days
         supabase
           .from('price_alerts')
           .select('id, modelo, competidor, precio_detectado, created_at')
+          .gte('created_at', thirtyDaysAgoStr)
           .order('created_at', { ascending: false })
-          .limit(5),
+          .limit(10),
       ])
 
     // --- Process Comments ---
@@ -159,7 +237,7 @@ export async function fetchUserNotifications(profile: Profile | null): Promise<A
             const author = c.autor?.nombre_completo || 'Un compañero'
             const itemDesc = c.shortage?.modelo || c.shortage?.especificacion || c.shortage?.categoria || 'material'
             const dateObj = new Date(c.created_at)
-            
+
             notifications.push({
               id: notifId,
               type: 'comment',
@@ -278,3 +356,4 @@ export async function fetchUserNotifications(profile: Profile | null): Promise<A
     return []
   }
 }
+

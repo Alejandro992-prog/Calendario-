@@ -48,6 +48,7 @@ export default function DeliveryModal({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [newItemModel, setNewItemModel] = useState('')
+  const [newItemDesc, setNewItemDesc] = useState('')
   const [newItemQty, setNewItemQty] = useState(1)
   const [addingItem, setAddingItem] = useState(false)
   const [showIngestorInModal, setShowIngestorInModal] = useState(false)
@@ -108,7 +109,8 @@ export default function DeliveryModal({
     setAddingItem(true)
     const { data, error } = await supabase.from('delivery_items').insert({
       delivery_id: delivery.id,
-      modelo: newItemModel.trim(),
+      modelo: newItemModel.trim().toUpperCase(),
+      descripcion: newItemDesc.trim() || null,
       cantidad: newItemQty,
       fuente: 'manual',
       created_by: profile?.id,
@@ -118,6 +120,7 @@ export default function DeliveryModal({
     else {
       setItems((prev) => [...prev, data as DeliveryItem])
       setNewItemModel('')
+      setNewItemDesc('')
       setNewItemQty(1)
       toast.success('Artículo añadido')
     }
@@ -369,11 +372,11 @@ export default function DeliveryModal({
 
                 {/* Quick Add Row */}
                 {canEdit && (
-                  <div className="flex items-center gap-2 bg-surface-700/30 p-2 rounded-xl border border-surface-700">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-surface-700/30 p-2.5 rounded-xl border border-surface-700">
                     <input
                       type="text"
-                      className="form-input py-1 px-2.5 text-xs flex-1 font-mono"
-                      placeholder="Modelo / Referencia..."
+                      className="form-input py-1 px-2.5 text-xs w-full sm:w-40 font-mono font-bold uppercase"
+                      placeholder="Modelo / Ref *"
                       value={newItemModel}
                       onChange={(e) => setNewItemModel(e.target.value)}
                       onKeyDown={(e) => {
@@ -384,20 +387,39 @@ export default function DeliveryModal({
                       }}
                     />
                     <input
-                      type="number"
-                      className="form-input py-1 px-2 text-xs w-16 text-right font-bold"
-                      value={newItemQty}
-                      onChange={(e) => setNewItemQty(parseInt(e.target.value) || 1)}
-                      min={1}
+                      type="text"
+                      className="form-input py-1 px-2.5 text-xs flex-1 min-w-0"
+                      placeholder="Descripción del artículo..."
+                      value={newItemDesc}
+                      onChange={(e) => setNewItemDesc(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleAddItem()
+                        }
+                      }}
                     />
-                    <button
-                      type="button"
-                      onClick={handleAddItem}
-                      disabled={addingItem || !newItemModel.trim()}
-                      className="btn-primary btn-sm text-xs py-1 px-3"
-                    >
-                      {addingItem ? 'Añadiendo...' : 'Añadir'}
-                    </button>
+                    <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-surface-400 font-medium sm:hidden">Cant:</span>
+                        <input
+                          type="number"
+                          className="form-input py-1 px-2 text-xs w-16 text-center font-bold"
+                          title="Cantidad"
+                          value={newItemQty}
+                          onChange={(e) => setNewItemQty(parseInt(e.target.value) || 1)}
+                          min={1}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddItem}
+                        disabled={addingItem || !newItemModel.trim()}
+                        className="btn-primary btn-sm text-xs py-1 px-3 whitespace-nowrap"
+                      >
+                        {addingItem ? 'Añadiendo...' : 'Añadir'}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -407,19 +429,19 @@ export default function DeliveryModal({
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Modelo</th>
+                          <th className="w-32">Modelo</th>
                           <th>Descripción</th>
-                          <th>EAN</th>
-                          <th className="text-right">Cant.</th>
+                          <th className="w-28 hidden sm:table-cell">EAN</th>
+                          <th className="w-16 text-right">Cant.</th>
                           {canEdit && <th className="w-8"></th>}
                         </tr>
                       </thead>
                       <tbody>
                         {items.map((item) => (
                           <tr key={item.id} className="hover:bg-surface-700/20">
-                            <td className="font-mono font-bold text-brand-400">{item.modelo}</td>
-                            <td className="text-surface-300 max-w-[180px] truncate">{item.descripcion || '—'}</td>
-                            <td className="font-mono text-xs text-surface-400">{item.ean || '—'}</td>
+                            <td className="font-mono font-bold text-brand-400 whitespace-nowrap">{item.modelo}</td>
+                            <td className="text-surface-200">{item.descripcion || '—'}</td>
+                            <td className="font-mono text-xs text-surface-400 hidden sm:table-cell whitespace-nowrap">{item.ean || '—'}</td>
                             <td className="text-right font-semibold">{item.cantidad}</td>
                             {canEdit && (
                               <td>

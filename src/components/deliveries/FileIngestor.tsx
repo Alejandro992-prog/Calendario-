@@ -573,10 +573,10 @@ export default function FileIngestor({
             <table className="data-table">
               <thead>
                 <tr>
-                  <th className="w-1/4">Modelo / Ref *</th>
-                  <th className="w-2/5">Descripción</th>
-                  <th className="w-1/5">Código EAN</th>
-                  <th className="w-20 text-right">Cant.</th>
+                  <th className="w-40 sm:w-48">Modelo / Ref *</th>
+                  <th>Descripción</th>
+                  <th className="w-32 hidden md:table-cell">Código EAN</th>
+                  <th className="w-20 text-center">Cant.</th>
                   <th className="w-16 text-center">Fuente</th>
                   <th className="w-10"></th>
                 </tr>
@@ -584,7 +584,7 @@ export default function FileIngestor({
               <tbody>
                 {items.map((item, idx) => (
                   <tr key={idx} className="hover:bg-surface-700/20">
-                    <td>
+                    <td className="w-40 sm:w-48">
                       <input
                         className="form-input py-1 px-2 text-xs font-mono font-bold text-brand-300 w-full"
                         value={item.modelo}
@@ -594,13 +594,13 @@ export default function FileIngestor({
                     </td>
                     <td>
                       <input
-                        className="form-input py-1 px-2 text-xs w-full"
+                        className="form-input py-1 px-2.5 text-xs w-full"
                         value={item.descripcion || ''}
-                        placeholder="Descripción del electrodoméstico..."
+                        placeholder="Descripción del electrodoméstico o producto..."
                         onChange={(e) => updateItem(idx, 'descripcion', e.target.value)}
                       />
                     </td>
-                    <td>
+                    <td className="w-32 hidden md:table-cell">
                       <input
                         className="form-input py-1 px-2 text-xs font-mono w-full"
                         value={item.ean || ''}
@@ -608,14 +608,16 @@ export default function FileIngestor({
                         onChange={(e) => updateItem(idx, 'ean', e.target.value)}
                       />
                     </td>
-                    <td>
-                      <input
-                        type="number"
-                        className="form-input py-1 px-2 text-xs font-bold text-right w-full"
-                        value={item.cantidad}
-                        onChange={(e) => updateItem(idx, 'cantidad', parseInt(e.target.value) || 1)}
-                        min={1}
-                      />
+                    <td className="w-20 text-center">
+                      <div className="flex justify-center">
+                        <input
+                          type="number"
+                          className="form-input py-1 px-2 text-xs font-bold text-center w-16"
+                          value={item.cantidad}
+                          onChange={(e) => updateItem(idx, 'cantidad', parseInt(e.target.value) || 1)}
+                          min={1}
+                        />
+                      </div>
                     </td>
                     <td className="text-center">
                       <span

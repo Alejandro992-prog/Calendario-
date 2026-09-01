@@ -71,6 +71,7 @@ export default function TopBar({
       loadNotifications()
     }
     window.addEventListener('garde_notification_update', handleUpdate)
+    window.addEventListener('storage', handleUpdate)
 
     // Supabase realtime subscription for instant notifications
     const channel = supabase
@@ -94,6 +95,7 @@ export default function TopBar({
 
     return () => {
       window.removeEventListener('garde_notification_update', handleUpdate)
+      window.removeEventListener('storage', handleUpdate)
       supabase.removeChannel(channel)
     }
   }, [profile?.id, profile?.rol])
@@ -119,6 +121,7 @@ export default function TopBar({
 
     saveDismissedId(profile.id, id)
     setNotifications((prev) => prev.filter((n) => n.id !== id))
+    window.dispatchEvent(new CustomEvent('garde_notification_update'))
     toast.success('Aviso eliminado', { duration: 1500, position: 'bottom-right' })
   }
 
@@ -131,6 +134,7 @@ export default function TopBar({
     const ids = notifications.map((n) => n.id)
     saveDismissedIds(profile.id, ids)
     setNotifications([])
+    window.dispatchEvent(new CustomEvent('garde_notification_update'))
     toast.success('Todos los avisos han sido eliminados', {
       duration: 2000,
       position: 'bottom-right',
