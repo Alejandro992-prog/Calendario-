@@ -132,3 +132,26 @@ export interface ParsedItem {
   fuente: ItemSource;
   raw_data?: Record<string, unknown>;
 }
+
+// ============================================================
+// Objetivos y Rappels Anuales (Exclusivo Administrador)
+// ============================================================
+export interface RappelTier {
+  desde_euros: number;
+  porcentaje_rapel: number;
+}
+
+export interface SupplierTarget {
+  id: string;
+  proveedor_id?: string | null;
+  proveedor_nombre: string;
+  ejercicio: number; // Ej: 2026
+  consumo_actual: number; // Euros consumidos hasta la fecha
+  tramos: RappelTier[]; // Tramos ordenados ascendente
+  notas?: string | null;
+  fecha_actualizacion?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string | null;
+}
+

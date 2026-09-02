@@ -4,6 +4,7 @@ import {
   CalendarDays,
   AlertTriangle,
   TrendingDown,
+  Target,
   Settings,
   LogOut,
   Zap,
@@ -40,6 +41,12 @@ const navItems: NavItem[] = [
     path: '/price-alerts',
     icon: <TrendingDown size={18} />,
     label: 'Precios',
+  },
+  {
+    path: '/targets',
+    icon: <Target size={18} />,
+    label: 'Objetivos y Rappels',
+    roles: ['Administrador'],
   },
   {
     path: '/admin',

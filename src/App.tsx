@@ -12,6 +12,7 @@ import CalendarPage from '@/pages/CalendarPage'
 import ShortagesPage from '@/pages/ShortagesPage'
 import PriceAlertsPage from '@/pages/PriceAlertsPage'
 import AdminPage from '@/pages/AdminPage'
+import TargetsPage from '@/pages/TargetsPage'
 
 // Layout
 import Layout from '@/components/layout/Layout'
@@ -144,6 +145,16 @@ export default function App() {
             <ProtectedRoute>
               <Layout title="Alertas de Precios" subtitle="Agresiones de la competencia">
                 <PriceAlertsPage />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/targets"
+          element={
+            <ProtectedRoute roles={['Administrador']}>
+              <Layout title="Objetivos y Rappels" subtitle="Seguimiento de compras y acuerdos comerciales">
+                <TargetsPage />
               </Layout>
             </ProtectedRoute>
           }

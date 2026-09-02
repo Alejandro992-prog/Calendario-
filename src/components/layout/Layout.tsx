@@ -5,6 +5,7 @@ import {
   CalendarDays,
   AlertTriangle,
   TrendingDown,
+  Target,
   Settings,
 } from 'lucide-react'
 import Sidebar from './Sidebar'
@@ -27,7 +28,10 @@ export default function Layout({ title, subtitle, children }: LayoutProps) {
     { path: '/shortages', label: 'Faltas', icon: <AlertTriangle size={20} /> },
     { path: '/price-alerts', label: 'Precios', icon: <TrendingDown size={20} /> },
     ...(profile?.rol === 'Administrador'
-      ? [{ path: '/admin', label: 'Admin', icon: <Settings size={20} /> }]
+      ? [
+          { path: '/targets', label: 'Objetivos', icon: <Target size={20} /> },
+          { path: '/admin', label: 'Admin', icon: <Settings size={20} /> },
+        ]
       : []),
   ]
 
