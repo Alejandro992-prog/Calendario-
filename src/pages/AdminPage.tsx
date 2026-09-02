@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server, Search, Filter, Trash2, ArrowRight, Building2, KeyRound } from 'lucide-react'
 import { supabase, createUserWithoutSession, adminResetUserPassword } from '@/lib/supabase'
 import ResetPasswordModal from '@/components/admin/ResetPasswordModal'
+import DeleteUserModal from '@/components/admin/DeleteUserModal'
 import { generateFullBackup, downloadBackupFile } from '@/lib/backup'
 import { useAuthStore } from '@/store/authStore'
 import type { Profile, AuditLog, UserRole, Supplier } from '@/types'
@@ -44,6 +45,7 @@ export default function AdminPage() {
   const [showUserForm, setShowUserForm] = useState(false)
   const [editingUser, setEditingUser] = useState<Profile | null>(null)
   const [passwordModalUser, setPasswordModalUser] = useState<Profile | null>(null)
+  const [userToDelete, setUserToDelete] = useState<Profile | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [backupStats, setBackupStats] = useState<Record<string, number> | null>(null)
   const [loadingStats, setLoadingStats] = useState(false)
@@ -344,18 +346,28 @@ export default function AdminPage() {
                             <KeyRound size={13} />
                           </button>
                           {u.id !== profile?.id && (
-                            <button
-                              onClick={() => toggleActive(u)}
-                              className={`p-1.5 rounded-lg transition-colors ${
-                                u.activo
-                                  ? 'text-surface-500 hover:text-yellow-400 hover:bg-yellow-500/10'
-                                  : 'text-surface-500 hover:text-green-400 hover:bg-green-500/10'
-                              }`}
-                              title={u.activo ? 'Desactivar' : 'Activar'}
-                              id={`toggle-user-${u.id}`}
-                            >
-                              {u.activo ? <EyeOff size={13} /> : <Eye size={13} />}
-                            </button>
+                            <>
+                              <button
+                                onClick={() => toggleActive(u)}
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  u.activo
+                                    ? 'text-surface-500 hover:text-yellow-400 hover:bg-yellow-500/10'
+                                    : 'text-surface-500 hover:text-green-400 hover:bg-green-500/10'
+                                }`}
+                                title={u.activo ? 'Desactivar' : 'Activar'}
+                                id={`toggle-user-${u.id}`}
+                              >
+                                {u.activo ? <EyeOff size={13} /> : <Eye size={13} />}
+                              </button>
+                              <button
+                                onClick={() => setUserToDelete(u)}
+                                className="p-1.5 text-surface-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                title="Eliminar usuario / contacto"
+                                id={`delete-user-${u.id}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -859,6 +871,18 @@ export default function AdminPage() {
           isCurrentUser={passwordModalUser.id === profile?.id}
           onClose={() => setPasswordModalUser(null)}
           onSuccess={loadUsers}
+        />
+      )}
+
+      {/* Delete user double confirmation modal */}
+      {userToDelete && (
+        <DeleteUserModal
+          user={userToDelete}
+          onClose={() => setUserToDelete(null)}
+          onDeleted={() => {
+            setUserToDelete(null)
+            loadUsers()
+          }}
         />
       )}
 

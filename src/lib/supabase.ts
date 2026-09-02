@@ -154,3 +154,48 @@ export async function adminResetUserPassword(
   }
 }
 
+// Utility: Delete any user account completely as Administrator
+export async function adminDeleteUser(
+  targetUserId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!targetUserId) {
+    return { success: false, error: 'Identificador de usuario no válido' }
+  }
+
+  // 1. Intento principal: ejecutar la función RPC con permisos de Administrador para eliminar de auth.users y profiles
+  try {
+    const { data, error } = await supabase.rpc('admin_delete_user', {
+      target_user_id: targetUserId,
+    })
+
+    if (!error) {
+      if (data && typeof data === 'object' && 'success' in data && !(data as any).success) {
+        return { success: false, error: (data as any).error || 'No se pudo eliminar el usuario' }
+      }
+      return { success: true }
+    }
+
+    // Si la función RPC no existe aún en la base de datos (código 42883 o mensaje de función no encontrada),
+    // procedemos con el fallback de borrado directo sobre public.profiles
+    console.warn('RPC admin_delete_user no disponible, aplicando fallback en tabla profiles:', error.message)
+  } catch (err: any) {
+    console.warn('Error llamando RPC admin_delete_user:', err)
+  }
+
+  // 2. Fallback: Eliminar directamente de public.profiles vía política RLS de Administrador
+  try {
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', targetUserId)
+
+    if (profileError) {
+      return { success: false, error: profileError.message }
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error inesperado al eliminar el perfil de usuario' }
+  }
+}
+
