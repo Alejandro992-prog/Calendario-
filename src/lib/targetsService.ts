@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import type { SupplierTarget, RappelTier } from '@/types'
 
-const LOCAL_STORAGE_KEY = 'garde_supplier_targets_data'
+const LOCAL_STORAGE_KEY = 'garde_supplier_targets_data_v2'
 
 /**
  * Carga inicial de datos demo si no existe nada en local ni Supabase
