@@ -17,6 +17,11 @@ export default function TargetModal({ target, onClose, onSaved }: TargetModalPro
 
   const [proveedorNombre, setProveedorNombre] = useState(target?.proveedor_nombre || '')
   const [ejercicio, setEjercicio] = useState<number>(target?.ejercicio || currentYear)
+  const [tipoAcuerdo, setTipoAcuerdo] = useState<'anual' | 'campana' | 'trimestral'>(target?.tipo_acuerdo || 'anual')
+  const [trimestre, setTrimestre] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4'>(target?.trimestre || 'Q3')
+  const [categoriaCampana, setCategoriaCampana] = useState<string>(target?.categoria_campana || 'Frío')
+  const [nombreCampana, setNombreCampana] = useState(target?.nombre_campana || '')
+  const [periodoDescripcion, setPeriodoDescripcion] = useState(target?.periodo_descripcion || '')
   const [consumoActual, setConsumoActual] = useState<number>(target?.consumo_actual || 0)
   const [notas, setNotas] = useState(target?.notas || '')
   const [saving, setSaving] = useState(false)
@@ -95,6 +100,16 @@ export default function TargetModal({ target, onClose, onSaved }: TargetModalPro
         id: target?.id,
         proveedor_nombre: proveedorNombre.trim(),
         ejercicio: Number(ejercicio) || currentYear,
+        tipo_acuerdo: tipoAcuerdo,
+        trimestre: tipoAcuerdo === 'trimestral' ? trimestre : null,
+        categoria_campana: (tipoAcuerdo === 'campana' ? categoriaCampana : null) as any,
+        nombre_campana: tipoAcuerdo === 'campana' ? (nombreCampana.trim() || `Campaña ${categoriaCampana}`) : null,
+        periodo_descripcion:
+          tipoAcuerdo === 'trimestral'
+            ? `${trimestre}`
+            : tipoAcuerdo === 'campana'
+            ? periodoDescripcion.trim() || null
+            : null,
         consumo_actual: Number(consumoActual) || 0,
         tramos: [...tramos].sort((a, b) => a.desde_euros - b.desde_euros),
         notas: notas.trim() || null,
@@ -119,7 +134,7 @@ export default function TargetModal({ target, onClose, onSaved }: TargetModalPro
               {isEditing ? 'Editar Acuerdo de Objetivos y Rappels' : 'Nuevo Acuerdo de Objetivos y Rappels'}
             </h2>
             <p className="text-xs text-surface-400 mt-0.5">
-              Configura los umbrales de compra y los porcentajes de rappel pactados a primeros de año
+              Acuerdos anuales globales, campañas estacionales (frío, secado...) o liquidaciones trimestrales
             </p>
           </div>
           <button
@@ -131,6 +146,147 @@ export default function TargetModal({ target, onClose, onSaved }: TargetModalPro
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+          {/* Tipo de Acuerdo Selector */}
+          <div>
+            <label className="form-label text-xs font-semibold text-surface-300 mb-1.5 block">
+              Modalidad del Acuerdo <span className="text-red-400">*</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setTipoAcuerdo('anual')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  tipoAcuerdo === 'anual'
+                    ? 'bg-brand-500/15 border-brand-500/50 text-white shadow-sm ring-1 ring-brand-500/30'
+                    : 'bg-surface-800/60 border-surface-700 text-surface-400 hover:text-surface-200 hover:border-surface-600'
+                }`}
+              >
+                <span className="text-xs font-bold block flex items-center gap-1.5">
+                  🏆 Anual Global
+                </span>
+                <span className="text-[10px] text-surface-400 block mt-0.5 leading-tight">
+                  Toda la facturación del año
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTipoAcuerdo('campana')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  tipoAcuerdo === 'campana'
+                    ? 'bg-brand-500/15 border-brand-500/50 text-white shadow-sm ring-1 ring-brand-500/30'
+                    : 'bg-surface-800/60 border-surface-700 text-surface-400 hover:text-surface-200 hover:border-surface-600'
+                }`}
+              >
+                <span className="text-xs font-bold block flex items-center gap-1.5">
+                  🎯 Campaña / Atípico
+                </span>
+                <span className="text-[10px] text-surface-400 block mt-0.5 leading-tight">
+                  Frío, Secado, Cocción...
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTipoAcuerdo('trimestral')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  tipoAcuerdo === 'trimestral'
+                    ? 'bg-brand-500/15 border-brand-500/50 text-white shadow-sm ring-1 ring-brand-500/30'
+                    : 'bg-surface-800/60 border-surface-700 text-surface-400 hover:text-surface-200 hover:border-surface-600'
+                }`}
+              >
+                <span className="text-xs font-bold block flex items-center gap-1.5">
+                  📅 Trimestral
+                </span>
+                <span className="text-[10px] text-surface-400 block mt-0.5 leading-tight">
+                  Q1, Q2, Q3 o Q4
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Opciones específicas si es Campaña */}
+          {tipoAcuerdo === 'campana' && (
+            <div className="p-3 rounded-xl bg-surface-800/70 border border-surface-700 space-y-3 animate-fade-in">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="form-label text-xs font-semibold text-surface-300">
+                    Familia de Campaña <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={categoriaCampana}
+                    onChange={(e) => setCategoriaCampana(e.target.value)}
+                    className="form-select text-sm w-full mt-1"
+                  >
+                    <option value="Frío">❄️ Frío (Frigoríficos / Combis)</option>
+                    <option value="Secado">🌀 Secado (Secadoras)</option>
+                    <option value="Cocción">🔥 Cocción (Hornos / Placas / Campanas)</option>
+                    <option value="Lavado">🧼 Lavado (Lavadoras)</option>
+                    <option value="Climatización">💨 Climatización (Aire)</option>
+                    <option value="Otro">📦 Otra Campaña Especial</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label text-xs font-semibold text-surface-300">
+                    Periodo / Fechas (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={periodoDescripcion}
+                    onChange={(e) => setPeriodoDescripcion(e.target.value)}
+                    placeholder="Ej. 1 May - 31 Ago, Otoño..."
+                    className="form-input text-sm w-full mt-1"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label text-xs font-semibold text-surface-300">
+                  Nombre descriptivo de la campaña
+                </label>
+                <input
+                  type="text"
+                  value={nombreCampana}
+                  onChange={(e) => setNombreCampana(e.target.value)}
+                  placeholder="Ej. Campaña Frío Verano 2026, Plan Renove Secadoras..."
+                  className="form-input text-sm w-full mt-1"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Opciones específicas si es Trimestral */}
+          {tipoAcuerdo === 'trimestral' && (
+            <div className="p-3 rounded-xl bg-surface-800/70 border border-surface-700 animate-fade-in">
+              <label className="form-label text-xs font-semibold text-surface-300 mb-1.5 block">
+                Selecciona el Trimestre de Liquidación <span className="text-red-400">*</span>
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { q: 'Q1', desc: 'Ene - Mar' },
+                  { q: 'Q2', desc: 'Abr - Jun' },
+                  { q: 'Q3', desc: 'Jul - Sep' },
+                  { q: 'Q4', desc: 'Oct - Dic' },
+                ].map((item) => (
+                  <button
+                    key={item.q}
+                    type="button"
+                    onClick={() => setTrimestre(item.q as any)}
+                    className={`py-2 px-1 rounded-lg border text-center transition-all ${
+                      trimestre === item.q
+                        ? 'bg-brand-500/20 border-brand-500 text-white font-bold'
+                        : 'bg-surface-800 border-surface-700 text-surface-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="block font-mono text-sm">{item.q}</span>
+                    <span className="block text-[10px] text-surface-400 mt-0.5">{item.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Proveedor & Año */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
@@ -172,7 +328,7 @@ export default function TargetModal({ target, onClose, onSaved }: TargetModalPro
           {/* Consumo inicial acumulado */}
           <div>
             <label className="form-label text-xs font-semibold text-surface-300">
-              Compras Consumidas Actuales (€)
+              Compras Consumidas Actuales en este Acuerdo (€)
             </label>
             <div className="relative mt-1">
               <input

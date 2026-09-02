@@ -40,6 +40,38 @@ export function isLeapYear(year: number): boolean {
 }
 
 /**
+ * Información y días transcurridos/restantes de un trimestre específico
+ */
+export function getQuarterInfo(quarter: 'Q1' | 'Q2' | 'Q3' | 'Q4', year: number, currentDate = new Date()) {
+  const qMap = {
+    Q1: { startMonth: 0, endMonth: 2, endDay: 31, label: 'Q1 (Ene - Mar)' },
+    Q2: { startMonth: 3, endMonth: 5, endDay: 30, label: 'Q2 (Abr - Jun)' },
+    Q3: { startMonth: 6, endMonth: 8, endDay: 30, label: 'Q3 (Jul - Sep)' },
+    Q4: { startMonth: 9, endMonth: 11, endDay: 31, label: 'Q4 (Oct - Dic)' },
+  }
+  const q = qMap[quarter] || qMap.Q1
+  const startDate = new Date(year, q.startMonth, 1)
+  const endDate = new Date(year, q.endMonth, q.endDay, 23, 59, 59)
+  const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+
+  let daysElapsed = 0
+  let daysRemaining = 0
+
+  if (currentDate < startDate) {
+    daysElapsed = 0
+    daysRemaining = totalDays
+  } else if (currentDate > endDate) {
+    daysElapsed = totalDays
+    daysRemaining = 0
+  } else {
+    daysElapsed = Math.max(1, Math.round((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)))
+    daysRemaining = Math.max(0, totalDays - daysElapsed)
+  }
+
+  return { ...q, startDate, endDate, totalDays, daysElapsed, daysRemaining }
+}
+
+/**
  * Calcula todas las métricas de rappel y run-rate para un objetivo
  */
 export function calculateTargetMetrics(target: SupplierTarget, currentDate = new Date()): TargetAnalysis {
@@ -88,29 +120,36 @@ export function calculateTargetMetrics(target: SupplierTarget, currentDate = new
     : 0
 
   // -------------------------------------------------------------
-  // Proyección a Fin de Año (Run-Rate)
+  // Proyección de Fin de Periodo (Run-Rate)
   // -------------------------------------------------------------
   const ejercicio = target.ejercicio || currentDate.getFullYear()
-  const totalDiasAno = isLeapYear(ejercicio) ? 366 : 365
+  const esTrimestral = target.tipo_acuerdo === 'trimestral' && Boolean(target.trimestre)
 
+  let totalDiasPeriodo: number
   let diasTranscurridos: number
   let diasRestantes: number
 
-  if (ejercicio === currentDate.getFullYear()) {
-    diasTranscurridos = Math.max(1, getDayOfYear(currentDate))
-    diasRestantes = Math.max(0, totalDiasAno - diasTranscurridos)
-  } else if (ejercicio < currentDate.getFullYear()) {
-    // Ejercicio pasado: año completo finalizado
-    diasTranscurridos = totalDiasAno
-    diasRestantes = 0
+  if (esTrimestral && target.trimestre) {
+    const qInfo = getQuarterInfo(target.trimestre, ejercicio, currentDate)
+    totalDiasPeriodo = qInfo.totalDays
+    diasTranscurridos = Math.max(1, qInfo.daysElapsed)
+    diasRestantes = qInfo.daysRemaining
   } else {
-    // Ejercicio futuro aún no iniciado
-    diasTranscurridos = 1
-    diasRestantes = totalDiasAno
+    totalDiasPeriodo = isLeapYear(ejercicio) ? 366 : 365
+    if (ejercicio === currentDate.getFullYear()) {
+      diasTranscurridos = Math.max(1, getDayOfYear(currentDate))
+      diasRestantes = Math.max(0, totalDiasPeriodo - diasTranscurridos)
+    } else if (ejercicio < currentDate.getFullYear()) {
+      diasTranscurridos = totalDiasPeriodo
+      diasRestantes = 0
+    } else {
+      diasTranscurridos = 1
+      diasRestantes = totalDiasPeriodo
+    }
   }
 
   const ritmoDiarioActual = diasTranscurridos > 0 ? consumoActual / diasTranscurridos : 0
-  const proyeccionFinDeAno = ritmoDiarioActual * totalDiasAno
+  const proyeccionFinDeAno = ritmoDiarioActual * totalDiasPeriodo
 
   const targetAAlcanzar = proximoTramo ? Number(proximoTramo.desde_euros) : objetivoPrincipal
   const faltaParaMeta = Math.max(0, targetAAlcanzar - consumoActual)

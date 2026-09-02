@@ -62,6 +62,42 @@ export default function TargetCard({
     },
   }[metrics.estadoProyeccion]
 
+  const renderAgreementBadge = () => {
+    if (target.tipo_acuerdo === 'campana') {
+      const cat = target.categoria_campana || 'Otro'
+      const iconMap: Record<string, string> = {
+        Frío: '❄️',
+        Secado: '🌀',
+        Cocción: '🔥',
+        Lavado: '🧼',
+        Climatización: '💨',
+        Otro: '🎯',
+      }
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/15 text-cyan-300 font-semibold flex items-center gap-1">
+          <span>{iconMap[cat] || '🎯'}</span>
+          <span>Campaña {cat}</span>
+        </span>
+      )
+    }
+
+    if (target.tipo_acuerdo === 'trimestral') {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/15 text-purple-300 font-semibold flex items-center gap-1">
+          <span>📅</span>
+          <span>Rappel {target.trimestre || 'Trimestral'}</span>
+        </span>
+      )
+    }
+
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded-full border border-brand-500/30 bg-brand-500/15 text-brand-300 font-semibold flex items-center gap-1">
+        <span>🏆</span>
+        <span>Anual Global</span>
+      </span>
+    )
+  }
+
   return (
     <div className="card hover:border-surface-600 transition-all duration-200 flex flex-col justify-between overflow-hidden relative">
       {/* Top Background Glow Accent */}
@@ -71,10 +107,11 @@ export default function TargetCard({
         {/* Header */}
         <div className="flex items-start justify-between gap-3 pb-3 border-b border-surface-700/80">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
+            <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
               <span className="text-xs px-2 py-0.5 rounded-full font-mono font-bold bg-surface-700 text-surface-200">
                 {target.ejercicio}
               </span>
+              {renderAgreementBadge()}
               <span
                 className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold flex items-center gap-1 ${statusConfig.badgeClass}`}
               >
@@ -85,6 +122,15 @@ export default function TargetCard({
             <h3 className="text-base font-bold text-white truncate" title={target.proveedor_nombre}>
               {target.proveedor_nombre}
             </h3>
+            {(target.nombre_campana || target.periodo_descripcion) && (
+              <p className="text-xs text-brand-300/90 font-medium truncate mt-0.5">
+                {target.nombre_campana}
+                {target.nombre_campana && target.periodo_descripcion ? ' • ' : ''}
+                {target.periodo_descripcion && (
+                  <span className="text-surface-400 font-normal">({target.periodo_descripcion})</span>
+                )}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-1 flex-shrink-0">

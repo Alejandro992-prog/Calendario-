@@ -40,6 +40,9 @@ export default function TargetsPage() {
   const [selectedYear, setSelectedYear] = useState<number>(currentYear)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [agreementTypeFilter, setAgreementTypeFilter] = useState<'all' | 'anual' | 'campana' | 'trimestral'>('all')
+  const [campaignCategoryFilter, setCampaignCategoryFilter] = useState<string>('')
+  const [quarterFilter, setQuarterFilter] = useState<string>('')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
 
   // Modales
@@ -96,15 +99,33 @@ export default function TargetsPage() {
   const filteredTargets = useMemo(() => {
     return targets
       .filter((t) => {
+        if (agreementTypeFilter === 'all') return true
+        const type = t.tipo_acuerdo || 'anual'
+        return type === agreementTypeFilter
+      })
+      .filter((t) => {
+        if (!campaignCategoryFilter) return true
+        return t.categoria_campana === campaignCategoryFilter
+      })
+      .filter((t) => {
+        if (!quarterFilter) return true
+        return t.trimestre === quarterFilter
+      })
+      .filter((t) => {
         if (!search) return true
-        return t.proveedor_nombre.toLowerCase().includes(search.toLowerCase())
+        const q = search.toLowerCase()
+        return (
+          t.proveedor_nombre.toLowerCase().includes(q) ||
+          (t.nombre_campana || '').toLowerCase().includes(q) ||
+          (t.categoria_campana || '').toLowerCase().includes(q)
+        )
       })
       .filter((t) => {
         if (!statusFilter) return true
         const m = calculateTargetMetrics(t)
         return m.estadoProyeccion === statusFilter
       })
-  }, [targets, search, statusFilter])
+  }, [targets, agreementTypeFilter, campaignCategoryFilter, quarterFilter, search, statusFilter])
 
   // Handlers
   const handleSaveTarget = async (targetData: Partial<SupplierTarget>) => {
@@ -268,6 +289,125 @@ export default function TargetsPage() {
         </div>
       </div>
 
+      {/* Selector de Tipo de Acuerdo (Anual, Campaña/Atípico, Trimestral) */}
+      <div className="space-y-2.5">
+        <div className="flex items-center gap-2 border-b border-surface-700/80 pb-2 overflow-x-auto">
+          <button
+            onClick={() => {
+              setAgreementTypeFilter('all')
+              setCampaignCategoryFilter('')
+              setQuarterFilter('')
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              agreementTypeFilter === 'all'
+                ? 'bg-brand-500 text-white shadow-sm'
+                : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800'
+            }`}
+          >
+            Todos los Acuerdos ({targets.length})
+          </button>
+
+          <button
+            onClick={() => {
+              setAgreementTypeFilter('anual')
+              setCampaignCategoryFilter('')
+              setQuarterFilter('')
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              agreementTypeFilter === 'anual'
+                ? 'bg-brand-500 text-white shadow-sm'
+                : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800'
+            }`}
+          >
+            <span>🏆</span>
+            <span>Anuales Globales ({targets.filter((t) => (t.tipo_acuerdo || 'anual') === 'anual').length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setAgreementTypeFilter('campana')
+              setQuarterFilter('')
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              agreementTypeFilter === 'campana'
+                ? 'bg-cyan-500 text-white shadow-sm'
+                : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800'
+            }`}
+          >
+            <span>🎯</span>
+            <span>Campañas / Atípicos ({targets.filter((t) => t.tipo_acuerdo === 'campana').length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setAgreementTypeFilter('trimestral')
+              setCampaignCategoryFilter('')
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              agreementTypeFilter === 'trimestral'
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800'
+            }`}
+          >
+            <span>📅</span>
+            <span>Rappels Trimestrales ({targets.filter((t) => t.tipo_acuerdo === 'trimestral').length})</span>
+          </button>
+        </div>
+
+        {/* Subfiltro de Familias de Campaña si está en pestaña Campañas */}
+        {agreementTypeFilter === 'campana' && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-0.5 animate-fade-in">
+            <span className="text-xs text-surface-400 mr-1">Filtrar campaña:</span>
+            {[
+              { id: '', label: 'Todas las familias' },
+              { id: 'Frío', label: '❄️ Frío' },
+              { id: 'Secado', label: '🌀 Secado' },
+              { id: 'Cocción', label: '🔥 Cocción' },
+              { id: 'Lavado', label: '🧼 Lavado' },
+              { id: 'Climatización', label: '💨 Climatización' },
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setCampaignCategoryFilter(cat.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  campaignCategoryFilter === cat.id
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
+                    : 'bg-surface-800 text-surface-400 hover:text-white border border-surface-700'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Subfiltro de Trimestres si está en pestaña Trimestrales */}
+        {agreementTypeFilter === 'trimestral' && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-0.5 animate-fade-in">
+            <span className="text-xs text-surface-400 mr-1">Filtrar trimestre:</span>
+            {[
+              { id: '', label: 'Todos (Q1-Q4)' },
+              { id: 'Q1', label: 'Q1 (Ene - Mar)' },
+              { id: 'Q2', label: 'Q2 (Abr - Jun)' },
+              { id: 'Q3', label: 'Q3 (Jul - Sep)' },
+              { id: 'Q4', label: 'Q4 (Oct - Dic)' },
+            ].map((q) => (
+              <button
+                key={q.id}
+                onClick={() => setQuarterFilter(q.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  quarterFilter === q.id
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
+                    : 'bg-surface-800 text-surface-400 hover:text-white border border-surface-700'
+                }`}
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Filters Bar & View Mode Toggle */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 flex-wrap flex-1">
@@ -276,7 +416,7 @@ export default function TargetsPage() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-500" />
             <input
               type="text"
-              placeholder="Buscar marca o proveedor..."
+              placeholder="Buscar marca, campaña o proveedor..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="form-input pl-8 py-1.5 text-sm w-full"
@@ -337,7 +477,7 @@ export default function TargetsPage() {
           <Target size={40} className="mx-auto text-surface-600 mb-3" />
           <h3 className="text-base font-semibold text-surface-200">No hay acuerdos con los filtros seleccionados</h3>
           <p className="text-sm text-surface-400 mt-1 max-w-sm mx-auto">
-            Puedes dar de alta los acuerdos anuales negociados a primeros de año con el botón "Nuevo Acuerdo".
+            Puedes dar de alta los acuerdos anuales, campañas o trimestrales con el botón "Nuevo Acuerdo".
           </p>
           <button
             onClick={() => {
@@ -372,12 +512,13 @@ export default function TargetsPage() {
             <thead>
               <tr>
                 <th>Proveedor / Marca</th>
+                <th>Modalidad</th>
                 <th>Consumo Acumulado</th>
                 <th>Tramo Actual</th>
                 <th>Rappel Hoy</th>
                 <th>Próximo Escalón</th>
                 <th>Falta para Meta</th>
-                <th>Proyección 31 Dic</th>
+                <th>Proyección</th>
                 <th>Estado</th>
                 <th className="text-right">Acciones</th>
               </tr>
@@ -387,8 +528,28 @@ export default function TargetsPage() {
                 const m = calculateTargetMetrics(target)
                 return (
                   <tr key={target.id}>
-                    <td className="font-bold text-white">
-                      {target.proveedor_nombre}
+                    <td>
+                      <div>
+                        <p className="font-bold text-white">{target.proveedor_nombre}</p>
+                        {target.nombre_campana && (
+                          <p className="text-[11px] text-surface-400 truncate">{target.nombre_campana}</p>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      {target.tipo_acuerdo === 'campana' ? (
+                        <span className="badge border border-cyan-500/30 bg-cyan-500/15 text-cyan-300 text-[10px]">
+                          🎯 {target.categoria_campana || 'Campaña'}
+                        </span>
+                      ) : target.tipo_acuerdo === 'trimestral' ? (
+                        <span className="badge border border-purple-500/30 bg-purple-500/15 text-purple-300 text-[10px]">
+                          📅 {target.trimestre || 'Trimestral'}
+                        </span>
+                      ) : (
+                        <span className="badge border border-brand-500/30 bg-brand-500/15 text-brand-300 text-[10px]">
+                          🏆 Anual
+                        </span>
+                      )}
                     </td>
                     <td className="font-mono text-brand-300 font-bold">
                       {formatCurrency(m.consumoActual)}

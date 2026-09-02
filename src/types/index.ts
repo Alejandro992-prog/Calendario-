@@ -134,8 +134,12 @@ export interface ParsedItem {
 }
 
 // ============================================================
-// Objetivos y Rappels Anuales (Exclusivo Administrador)
+// Objetivos y Rappels Anuales, Trimestrales y Campañas (Exclusivo Administrador)
 // ============================================================
+export type TargetAgreementType = 'anual' | 'trimestral' | 'campana';
+export type Quarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
+export type CampaignCategory = 'Frío' | 'Secado' | 'Cocción' | 'Lavado' | 'Climatización' | 'Otro';
+
 export interface RappelTier {
   desde_euros: number;
   porcentaje_rapel: number;
@@ -146,6 +150,11 @@ export interface SupplierTarget {
   proveedor_id?: string | null;
   proveedor_nombre: string;
   ejercicio: number; // Ej: 2026
+  tipo_acuerdo?: TargetAgreementType; // 'anual' | 'trimestral' | 'campana'
+  trimestre?: Quarter | null; // Q1, Q2, Q3, Q4
+  categoria_campana?: CampaignCategory | null; // Frío, Secado, Cocción, Lavado...
+  nombre_campana?: string | null; // Ej: "Campaña Frío Verano", "Black Friday Secado"
+  periodo_descripcion?: string | null; // Ej: "1 May - 31 Ago", "Q3 (Jul - Sep)"
   consumo_actual: number; // Euros consumidos hasta la fecha
   tramos: RappelTier[]; // Tramos ordenados ascendente
   notas?: string | null;
