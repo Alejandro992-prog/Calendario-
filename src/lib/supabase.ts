@@ -106,3 +106,51 @@ export async function createUserWithoutSession({
     return { success: false, error: err?.message || 'Error al crear usuario' }
   }
 }
+
+// Utility: Change any user password directly as Administrator without requiring old password
+export async function adminResetUserPassword(
+  targetUserId: string,
+  newPassword: string,
+  isCurrentUser = false
+): Promise<{ success: boolean; error?: string }> {
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, error: 'La contraseña debe tener al menos 6 caracteres' }
+  }
+
+  // Si es el usuario actual en sesión, Supabase Auth permite actualizar directamente
+  if (isCurrentUser) {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) {
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  }
+
+  // Para otros usuarios, llamar a la función RPC con permisos de Administrador
+  try {
+    const { data, error } = await supabase.rpc('admin_reset_user_password', {
+      target_user_id: targetUserId,
+      new_password: newPassword,
+    })
+
+    if (error) {
+      if (error.message.includes('function') || error.message.includes('not found') || error.code === '42883') {
+        return {
+          success: false,
+          error:
+            'Para modificar contraseñas de otros usuarios directamente, ejecuta el script SQL 003_admin_reset_password en Supabase.',
+        }
+      }
+      return { success: false, error: error.message }
+    }
+
+    if (data && typeof data === 'object' && 'success' in data && !(data as any).success) {
+      return { success: false, error: (data as any).error || 'Error al actualizar la contraseña' }
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Error al restablecer la contraseña' }
+  }
+}
+

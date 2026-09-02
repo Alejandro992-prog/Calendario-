@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server, Search, Filter, Trash2, ArrowRight, Building2 } from 'lucide-react'
-import { supabase, createUserWithoutSession } from '@/lib/supabase'
+import { Plus, Shield, Users, Activity, RefreshCw, Edit2, X, Eye, EyeOff, HardDrive, Download, Database, CheckCircle2, FileText, Server, Search, Filter, Trash2, ArrowRight, Building2, KeyRound } from 'lucide-react'
+import { supabase, createUserWithoutSession, adminResetUserPassword } from '@/lib/supabase'
+import ResetPasswordModal from '@/components/admin/ResetPasswordModal'
 import { generateFullBackup, downloadBackupFile } from '@/lib/backup'
 import { useAuthStore } from '@/store/authStore'
 import type { Profile, AuditLog, UserRole, Supplier } from '@/types'
@@ -42,6 +43,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [showUserForm, setShowUserForm] = useState(false)
   const [editingUser, setEditingUser] = useState<Profile | null>(null)
+  const [passwordModalUser, setPasswordModalUser] = useState<Profile | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [backupStats, setBackupStats] = useState<Record<string, number> | null>(null)
   const [loadingStats, setLoadingStats] = useState(false)
@@ -328,10 +330,18 @@ export default function AdminPage() {
                           <button
                             onClick={() => { setEditingUser(u); setShowUserForm(true) }}
                             className="p-1.5 text-surface-500 hover:text-brand-400 hover:bg-brand-500/10 rounded-lg transition-colors"
-                            title="Editar"
+                            title="Editar usuario"
                             id={`edit-user-${u.id}`}
                           >
                             <Edit2 size={13} />
+                          </button>
+                          <button
+                            onClick={() => setPasswordModalUser(u)}
+                            className="p-1.5 text-surface-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
+                            title="Cambiar contraseña (sin pedir la actual)"
+                            id={`reset-pwd-${u.id}`}
+                          >
+                            <KeyRound size={13} />
                           </button>
                           {u.id !== profile?.id && (
                             <button
@@ -836,8 +846,19 @@ export default function AdminPage() {
       {showUserForm && (
         <UserFormModal
           user={editingUser}
+          isCurrentUser={editingUser?.id === profile?.id}
           onClose={() => setShowUserForm(false)}
           onSaved={() => { setShowUserForm(false); loadUsers() }}
+        />
+      )}
+
+      {/* Password reset modal */}
+      {passwordModalUser && (
+        <ResetPasswordModal
+          targetUser={passwordModalUser}
+          isCurrentUser={passwordModalUser.id === profile?.id}
+          onClose={() => setPasswordModalUser(null)}
+          onSuccess={loadUsers}
         />
       )}
 
@@ -974,11 +995,12 @@ function SupplierFormModal({ supplier, onClose, onSaved }: SupplierFormProps) {
 // ---- User form modal ----
 interface UserFormProps {
   user: Profile | null
+  isCurrentUser?: boolean
   onClose: () => void
   onSaved: () => void
 }
 
-function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
+function UserFormModal({ user, isCurrentUser = false, onClose, onSaved }: UserFormProps) {
   const [nombre, setNombre] = useState(user?.nombre_completo || '')
   const [email, setEmail] = useState(user?.email || '')
   const [password, setPassword] = useState('')
@@ -1019,6 +1041,21 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
         onSaved()
       }
     } else {
+      // Si el administrador introdujo una nueva contraseña al editar
+      if (password.trim()) {
+        if (password.trim().length < 6) {
+          toast.error('La contraseña debe tener al menos 6 caracteres')
+          setSaving(false)
+          return
+        }
+        const pwdRes = await adminResetUserPassword(user.id, password.trim(), isCurrentUser)
+        if (!pwdRes.success) {
+          toast.error(pwdRes.error || 'Error al actualizar la contraseña')
+          setSaving(false)
+          return
+        }
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -1031,7 +1068,11 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
       if (error) {
         toast.error(error.message)
       } else {
-        toast.success('Usuario actualizado correctamente')
+        toast.success(
+          password.trim()
+            ? 'Usuario y contraseña actualizados correctamente'
+            : 'Usuario actualizado correctamente'
+        )
         onSaved()
       }
     }
@@ -1080,28 +1121,40 @@ function UserFormModal({ user, onClose, onSaved }: UserFormProps) {
               id="user-email"
             />
           </div>
-          {isNew && (
-            <div className="form-group">
-              <label className="form-label">Contraseña de acceso *</label>
-              <div className="relative">
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  className="form-input pr-10"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
-                  id="user-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300"
-                >
-                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
+          <div className="form-group">
+            <div className="flex items-center justify-between">
+              <label className="form-label">
+                {isNew ? 'Contraseña de acceso *' : 'Nueva Contraseña (opcional)'}
+              </label>
+              {!isNew && (
+                <span className="text-[10px] text-brand-400 font-medium">
+                  Sin pedir la clave antigua
+                </span>
+              )}
             </div>
-          )}
+            <div className="relative">
+              <input
+                type={showPass ? 'text' : 'password'}
+                className="form-input pr-10 font-mono"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isNew ? 'Mínimo 6 caracteres' : 'Dejar en blanco para mantener la actual'}
+                id="user-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass(!showPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300"
+              >
+                {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            {!isNew && (
+              <p className="text-[11px] text-surface-500 mt-1">
+                Puedes escribir directamente una nueva contraseña si el usuario la ha olvidado o necesita cambiarla.
+              </p>
+            )}
+          </div>
           <div className="form-group">
             <label className="form-label">Cargo / Puesto</label>
             <input
