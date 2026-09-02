@@ -48,13 +48,13 @@ export default function Layout({ title, subtitle, children }: LayoutProps) {
           isMobileMenuOpen={mobileMenuOpen}
         />
 
-        <main className="flex-1 px-4 sm:px-6 pt-20 sm:pt-24 pb-24 md:pb-8 animate-fade-in max-w-7xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 pt-20 sm:pt-24 pb-28 md:pb-12 animate-fade-in max-w-7xl w-full mx-auto">
           {children}
         </main>
       </div>
 
       {/* Mobile Bottom Navigation Bar (Visible only on < 768px) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 h-16 bg-surface-900/95 border-t border-surface-700/80 backdrop-blur-xl px-2 flex items-center justify-around">
+      <nav className="mobile-bottom-nav md:hidden fixed bottom-0 left-0 right-0 z-30 h-16 bg-surface-900/95 border-t border-surface-700/80 backdrop-blur-xl px-2 flex items-center justify-around">
         {bottomNavItems.map((item) => (
           <NavLink
             key={item.path}

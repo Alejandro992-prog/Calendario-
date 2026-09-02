@@ -117,7 +117,9 @@ export default function ShortagesPage() {
     .sort((a, b) => (urgencyOrder[a.urgencia] ?? 99) - (urgencyOrder[b.urgencia] ?? 99))
 
   const urgentCount = shortages.filter(
-    (s) => (s.urgencia === 'Alta' || s.urgencia === 'Crítica') && s.estado !== 'Descartado'
+    (s) =>
+      (s.urgencia === 'Alta' || s.urgencia === 'Crítica') &&
+      !['Pedido', 'En Tránsito', 'Descartado'].includes(s.estado)
   ).length
 
   return (
