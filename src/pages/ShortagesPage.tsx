@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Filter, Search, RefreshCw, AlertTriangle, Trash2, User } from 'lucide-react'
+import { Plus, Filter, Search, RefreshCw, AlertTriangle, Trash2, User, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import type { StockShortage } from '@/types'
 import ShortageForm from '@/components/shortages/ShortageForm'
 import ShortageDetailModal from '@/components/shortages/ShortageDetailModal'
 import toast from 'react-hot-toast'
+
+type SortField = 'created_at' | 'urgencia' | 'categoria' | 'especificacion' | 'modelo' | 'estado' | 'reporter'
+type SortDirection = 'asc' | 'desc'
 
 const urgencyOrder: Record<string, number> = { Crítica: 0, Alta: 1, Media: 2, Baja: 3 }
 
@@ -35,6 +38,8 @@ export default function ShortagesPage() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterReporter, setFilterReporter] = useState('')
   const [search, setSearch] = useState('')
+  const [sortField, setSortField] = useState<SortField>('created_at')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
   useEffect(() => { loadShortages() }, [])
 
@@ -98,23 +103,103 @@ export default function ShortagesPage() {
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
   }, [shortages, profile])
 
-  const filtered = shortages
-    .filter((s) => !filterStatus || s.estado === filterStatus)
-    .filter((s) => !filterUrgency || s.urgencia === filterUrgency)
-    .filter((s) => !filterCategory || s.categoria === filterCategory)
-    .filter((s) => !filterReporter || s.reportado_por === filterReporter)
-    .filter((s) => {
-      if (!search) return true
-      const q = search.toLowerCase()
-      const repName = ((s as any).reporter?.nombre_completo || '').toLowerCase()
-      return (
-        s.categoria.toLowerCase().includes(q) ||
-        (s.especificacion || '').toLowerCase().includes(q) ||
-        (s.modelo || '').toLowerCase().includes(q) ||
-        repName.includes(q)
-      )
-    })
-    .sort((a, b) => (urgencyOrder[a.urgencia] ?? 99) - (urgencyOrder[b.urgencia] ?? 99))
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      // When clicking date, default to 'desc' (most recent first); for others, default to 'asc'
+      setSortDirection(field === 'created_at' ? 'desc' : 'asc')
+    }
+  }
+
+  const handleSortPresetChange = (value: string) => {
+    switch (value) {
+      case 'date_desc':
+        setSortField('created_at')
+        setSortDirection('desc')
+        break
+      case 'date_asc':
+        setSortField('created_at')
+        setSortDirection('asc')
+        break
+      case 'urgency_desc':
+        setSortField('urgencia')
+        setSortDirection('asc') // Crítica is 0 (first)
+        break
+      case 'urgency_asc':
+        setSortField('urgencia')
+        setSortDirection('desc') // Baja is 3 (last)
+        break
+      case 'category_asc':
+        setSortField('categoria')
+        setSortDirection('asc')
+        break
+      case 'category_desc':
+        setSortField('categoria')
+        setSortDirection('desc')
+        break
+      case 'status_asc':
+        setSortField('estado')
+        setSortDirection('asc')
+        break
+      case 'reporter_asc':
+        setSortField('reporter')
+        setSortDirection('asc')
+        break
+    }
+  }
+
+  const currentSortPreset = useMemo(() => {
+    if (sortField === 'created_at') return sortDirection === 'desc' ? 'date_desc' : 'date_asc'
+    if (sortField === 'urgencia') return sortDirection === 'asc' ? 'urgency_desc' : 'urgency_asc'
+    if (sortField === 'categoria') return sortDirection === 'asc' ? 'category_asc' : 'category_desc'
+    if (sortField === 'estado') return 'status_asc'
+    if (sortField === 'reporter') return 'reporter_asc'
+    return ''
+  }, [sortField, sortDirection])
+
+  const filtered = useMemo(() => {
+    return shortages
+      .filter((s) => !filterStatus || s.estado === filterStatus)
+      .filter((s) => !filterUrgency || s.urgencia === filterUrgency)
+      .filter((s) => !filterCategory || s.categoria === filterCategory)
+      .filter((s) => !filterReporter || s.reportado_por === filterReporter)
+      .filter((s) => {
+        if (!search) return true
+        const q = search.toLowerCase()
+        const repName = ((s as any).reporter?.nombre_completo || '').toLowerCase()
+        return (
+          s.categoria.toLowerCase().includes(q) ||
+          (s.especificacion || '').toLowerCase().includes(q) ||
+          (s.modelo || '').toLowerCase().includes(q) ||
+          repName.includes(q)
+        )
+      })
+      .sort((a, b) => {
+        let comparison = 0
+        if (sortField === 'created_at') {
+          const timeA = new Date(a.created_at).getTime()
+          const timeB = new Date(b.created_at).getTime()
+          comparison = timeA - timeB
+        } else if (sortField === 'urgencia') {
+          comparison = (urgencyOrder[a.urgencia] ?? 99) - (urgencyOrder[b.urgencia] ?? 99)
+        } else if (sortField === 'categoria') {
+          comparison = a.categoria.localeCompare(b.categoria, 'es')
+        } else if (sortField === 'especificacion') {
+          comparison = (a.especificacion || '').localeCompare(b.especificacion || '', 'es')
+        } else if (sortField === 'modelo') {
+          comparison = (a.modelo || '').localeCompare(b.modelo || '', 'es')
+        } else if (sortField === 'estado') {
+          comparison = a.estado.localeCompare(b.estado, 'es')
+        } else if (sortField === 'reporter') {
+          const repA = (a as any).reporter?.nombre_completo || ''
+          const repB = (b as any).reporter?.nombre_completo || ''
+          comparison = repA.localeCompare(repB, 'es')
+        }
+        return sortDirection === 'asc' ? comparison : -comparison
+      })
+  }, [shortages, filterStatus, filterUrgency, filterCategory, filterReporter, search, sortField, sortDirection])
 
   const urgentCount = shortages.filter(
     (s) =>
@@ -225,6 +310,25 @@ export default function ShortagesPage() {
           <option value="">Todos los estados</option>
           {ESTADOS.map((e) => <option key={e}>{e}</option>)}
         </select>
+
+        {/* Ordenar por selector */}
+        <select
+          className="form-select py-1.5 text-sm bg-surface-800 border-surface-700 text-surface-200"
+          value={currentSortPreset}
+          onChange={(e) => handleSortPresetChange(e.target.value)}
+          id="select-sort-shortages"
+          title="Ordenar lista"
+        >
+          <option value="date_desc">📅 Fecha: Más recientes</option>
+          <option value="date_asc">📅 Fecha: Más antiguas</option>
+          <option value="urgency_desc">🚨 Urgencia: Mayor a menor</option>
+          <option value="urgency_asc">🚨 Urgencia: Menor a mayor</option>
+          <option value="category_asc">🏷️ Categoría (A-Z)</option>
+          <option value="category_desc">🏷️ Categoría (Z-A)</option>
+          <option value="status_asc">📊 Estado</option>
+          <option value="reporter_asc">👤 Reportado por</option>
+        </select>
+
         <button onClick={loadShortages} className="btn-ghost btn-icon btn-sm" title="Actualizar">
           <RefreshCw size={14} />
         </button>
@@ -245,13 +349,91 @@ export default function ShortagesPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Urgencia</th>
-                <th>Categoría</th>
+                <th
+                  onClick={() => handleSort('urgencia')}
+                  className="cursor-pointer select-none transition-colors hover:text-brand-300"
+                  title="Ordenar por urgencia"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Urgencia</span>
+                    {sortField === 'urgencia' ? (
+                      sortDirection === 'asc' ? <ArrowUp size={13} className="text-brand-400" /> : <ArrowDown size={13} className="text-brand-400" />
+                    ) : (
+                      <ArrowUpDown size={12} className="opacity-30 hover:opacity-100" />
+                    )}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('categoria')}
+                  className="cursor-pointer select-none transition-colors hover:text-brand-300"
+                  title="Ordenar por categoría"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Categoría</span>
+                    {sortField === 'categoria' ? (
+                      sortDirection === 'asc' ? <ArrowUp size={13} className="text-brand-400" /> : <ArrowDown size={13} className="text-brand-400" />
+                    ) : (
+                      <ArrowUpDown size={12} className="opacity-30 hover:opacity-100" />
+                    )}
+                  </div>
+                </th>
                 <th>Especificación</th>
-                <th>Modelo</th>
-                <th>Estado</th>
-                <th>Reportado por</th>
-                <th>Fecha</th>
+                <th
+                  onClick={() => handleSort('modelo')}
+                  className="cursor-pointer select-none transition-colors hover:text-brand-300"
+                  title="Ordenar por modelo"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Modelo</span>
+                    {sortField === 'modelo' ? (
+                      sortDirection === 'asc' ? <ArrowUp size={13} className="text-brand-400" /> : <ArrowDown size={13} className="text-brand-400" />
+                    ) : (
+                      <ArrowUpDown size={12} className="opacity-30 hover:opacity-100" />
+                    )}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('estado')}
+                  className="cursor-pointer select-none transition-colors hover:text-brand-300"
+                  title="Ordenar por estado"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Estado</span>
+                    {sortField === 'estado' ? (
+                      sortDirection === 'asc' ? <ArrowUp size={13} className="text-brand-400" /> : <ArrowDown size={13} className="text-brand-400" />
+                    ) : (
+                      <ArrowUpDown size={12} className="opacity-30 hover:opacity-100" />
+                    )}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('reporter')}
+                  className="cursor-pointer select-none transition-colors hover:text-brand-300"
+                  title="Ordenar por persona que reportó"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Reportado por</span>
+                    {sortField === 'reporter' ? (
+                      sortDirection === 'asc' ? <ArrowUp size={13} className="text-brand-400" /> : <ArrowDown size={13} className="text-brand-400" />
+                    ) : (
+                      <ArrowUpDown size={12} className="opacity-30 hover:opacity-100" />
+                    )}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('created_at')}
+                  className="cursor-pointer select-none transition-colors hover:text-brand-300"
+                  title="Ordenar por fecha"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Fecha</span>
+                    {sortField === 'created_at' ? (
+                      sortDirection === 'asc' ? <ArrowUp size={13} className="text-brand-400" /> : <ArrowDown size={13} className="text-brand-400" />
+                    ) : (
+                      <ArrowUpDown size={12} className="opacity-30 hover:opacity-100" />
+                    )}
+                  </div>
+                </th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -279,8 +461,12 @@ export default function ShortagesPage() {
                         <p className="text-xs text-surface-500">{(s as any).reporter?.cargo || ''}</p>
                       </div>
                     </td>
-                    <td className="text-xs text-surface-400">
-                      {new Date(s.created_at).toLocaleDateString('es-ES')}
+                    <td className="text-xs text-surface-400 whitespace-nowrap">
+                      {new Date(s.created_at).toLocaleDateString('es-ES', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                      })}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
