@@ -3,14 +3,16 @@ import { useDropzone } from 'react-dropzone'
 import {
   Upload, Clipboard, FileSpreadsheet, FileText, X,
   CheckCircle2, AlertCircle, Loader2, Plus, Trash2,
-  Truck, Calendar, Sparkles, RefreshCw, Layers
+  Truck, Calendar, Sparkles, RefreshCw, Layers, Crosshair
 } from 'lucide-react'
 import { parseExcel } from '@/lib/parsers/excel'
 import { parsePDF } from '@/lib/parsers/pdf'
 import { extractFromImage } from '@/lib/parsers/ocr'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
-import type { ParsedItem, Supplier, Delivery } from '@/types'
+import { getZoneForSupplier, saveZoneForSupplier } from '@/lib/pdfZoneStore'
+import PdfZoneSelector from './PdfZoneSelector'
+import type { ParsedItem, Supplier, Delivery, PdfZoneConfig } from '@/types'
 import toast from 'react-hot-toast'
 
 interface FileIngestorProps {
@@ -20,7 +22,7 @@ interface FileIngestorProps {
   onImported: () => void
 }
 
-type ParseState = 'idle' | 'parsing' | 'preview' | 'saving' | 'done'
+type ParseState = 'idle' | 'zone-selection' | 'parsing' | 'preview' | 'saving' | 'done'
 
 export default function FileIngestor({
   suppliers,
@@ -35,7 +37,7 @@ export default function FileIngestor({
   // Delivery assignment state
   const [deliveryMode, setDeliveryMode] = useState<'existing' | 'new'>('existing')
   const [selectedDeliveryId, setSelectedDeliveryId] = useState(preselectedDeliveryId || '')
-  const [deliveries, setDeliveries] = useState<{ id: string; label: string; date: string; supplier: string }[]>([])
+  const [deliveries, setDeliveries] = useState<{ id: string; label: string; date: string; supplier: string; supplierId: string }[]>([])
   const [loadingDeliveries, setLoadingDeliveries] = useState(false)
 
   // New delivery inline form
@@ -52,6 +54,10 @@ export default function FileIngestor({
   const [ocrMethod, setOcrMethod] = useState<string>('')
   const [parsingStep, setParsingStep] = useState('Procesando archivo...')
 
+  // PDF zone selection state
+  const [currentPdfFile, setCurrentPdfFile] = useState<File | null>(null)
+  const [pendingZone, setPendingZone] = useState<PdfZoneConfig | null>(null)
+
   useEffect(() => {
     loadDeliveries()
     const handler = (e: ClipboardEvent) => handleClipboard(e)
@@ -63,7 +69,7 @@ export default function FileIngestor({
     setLoadingDeliveries(true)
     const { data, error } = await supabase
       .from('deliveries')
-      .select('id, fecha_prevista, referencia, franja_horaria, supplier:suppliers(nombre)')
+      .select('id, fecha_prevista, referencia, franja_horaria, supplier_id, supplier:suppliers(id, nombre)')
       .order('fecha_prevista', { ascending: false })
       .limit(40)
 
@@ -73,6 +79,7 @@ export default function FileIngestor({
           id: d.id,
           date: d.fecha_prevista,
           supplier: d.supplier?.nombre || 'Sin proveedor',
+          supplierId: d.supplier_id || d.supplier?.id || '',
           label: `${d.supplier?.nombre || 'Sin proveedor'} — ${d.fecha_prevista}${
             d.referencia ? ` (Ref: ${d.referencia})` : ''
           }${d.franja_horaria ? ` [${d.franja_horaria}]` : ''}`,
@@ -88,19 +95,25 @@ export default function FileIngestor({
   const processFile = async (file: File) => {
     setFileName(file.name)
     setErrorMsg('')
+
+    const ext = file.name.split('.').pop()?.toLowerCase()
+
+    // For PDFs: always show zone selector first
+    if (ext === 'pdf') {
+      setCurrentPdfFile(file)
+      setState('zone-selection')
+      return
+    }
+
     setState('parsing')
     setParsingStep('Leyendo estructura del archivo...')
 
     try {
       let parsed: ParsedItem[] = []
-      const ext = file.name.split('.').pop()?.toLowerCase()
 
       if (ext === 'xlsx' || ext === 'csv' || ext === 'xls') {
         setParsingStep('Analizando columnas de Excel...')
         parsed = await parseExcel(file)
-      } else if (ext === 'pdf') {
-        setParsingStep('Extrayendo texto y líneas del PDF...')
-        parsed = await parsePDF(file)
       } else {
         throw new Error('Formato no compatible. Por favor sube un archivo Excel (.xlsx, .xls), CSV o PDF.')
       }
@@ -117,6 +130,42 @@ export default function FileIngestor({
       setErrorMsg(e.message || 'Error al procesar el archivo')
       setState('idle')
     }
+  }
+
+  /**
+   * Called after the user confirms (or skips) zone selection for a PDF.
+   * zone === null means "use full document".
+   */
+  const processFileWithZone = async (file: File, zone: PdfZoneConfig | null) => {
+    setPendingZone(zone)
+    setState('parsing')
+    setParsingStep('Extrayendo texto y líneas del PDF...')
+
+    try {
+      const parsed = await parsePDF(file, zone)
+
+      if (!parsed || parsed.length === 0) {
+        throw new Error('No se detectaron artículos en la zona seleccionada. Prueba a ampliar la selección o usa el documento completo.')
+      }
+
+      setItems(parsed)
+      setState('preview')
+      toast.success(`${parsed.length} artículos detectados en ${file.name}`)
+    } catch (e: any) {
+      console.error('PDF zone parsing error:', e)
+      setErrorMsg(e.message || 'Error al procesar el PDF')
+      setState('idle')
+    }
+  }
+
+  const onZoneConfirmed = (zone: PdfZoneConfig | null) => {
+    if (!currentPdfFile) return
+    processFileWithZone(currentPdfFile, zone)
+  }
+
+  const openZoneSelector = () => {
+    if (!currentPdfFile) return
+    setState('zone-selection')
   }
 
   const handleClipboard = async (e: ClipboardEvent) => {
@@ -147,7 +196,9 @@ export default function FileIngestor({
   }
 
   const onDrop = useCallback((accepted: File[]) => {
-    if (accepted[0]) processFile(accepted[0])
+    if (accepted[0]) {
+      processFile(accepted[0])
+    }
   }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -263,6 +314,13 @@ export default function FileIngestor({
       toast.error('Error al guardar los artículos: ' + itemsError.message)
       setState('preview')
     } else {
+      // Save zone for supplier if one was applied
+      if (pendingZone) {
+        const suppId = deliveryMode === 'new' ? newSupplierId : (
+          deliveries.find(d => d.id === selectedDeliveryId)?.supplierId ?? ''
+        )
+        if (suppId) saveZoneForSupplier(suppId, pendingZone)
+      }
       toast.success(`¡${validItems.length} artículos importados con éxito!`)
       setState('done')
       onImported()
@@ -272,7 +330,30 @@ export default function FileIngestor({
 
   const totalQuantity = items.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0)
 
+  // Determine saved zone for zone selector
+  const currentSupplierId = deliveryMode === 'new'
+    ? newSupplierId
+    : (deliveries.find(d => d.id === selectedDeliveryId)?.supplierId ?? '')
+  const savedZone = currentSupplierId ? getZoneForSupplier(currentSupplierId) : null
+
   return (
+    <>
+    {/* PDF Zone Selector Portal */}
+    {state === 'zone-selection' && currentPdfFile && (
+      <PdfZoneSelector
+        file={currentPdfFile}
+        initialZone={pendingZone || savedZone}
+        onZoneConfirmed={onZoneConfirmed}
+        onCancel={() => {
+          if (items.length > 0) {
+            setState('preview')
+          } else {
+            setCurrentPdfFile(null)
+            setState('idle')
+          }
+        }}
+      />
+    )}
     <div className="card border-brand-500/30 bg-surface-800/95 backdrop-blur-md shadow-2xl animate-slide-in p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-surface-700 pb-4">
@@ -561,11 +642,23 @@ export default function FileIngestor({
               </span>
             </div>
 
-            {ocrMethod && (
-              <span className="badge bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs flex items-center gap-1">
-                <Sparkles size={11} /> Extraído con {ocrMethod}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {currentPdfFile && (
+                <button
+                  type="button"
+                  onClick={openZoneSelector}
+                  className="btn-ghost btn-sm text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 border border-amber-500/20 px-2 py-1 rounded-lg"
+                  title="Cambiar la zona de búsqueda de productos en el PDF"
+                >
+                  <Crosshair size={12} /> Cambiar zona
+                </button>
+              )}
+              {ocrMethod && (
+                <span className="badge bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs flex items-center gap-1">
+                  <Sparkles size={11} /> Extraído con {ocrMethod}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Editable Table */}
@@ -667,6 +760,8 @@ export default function FileIngestor({
                   setItems([])
                   setFileName('')
                   setErrorMsg('')
+                  setCurrentPdfFile(null)
+                  setPendingZone(null)
                   setState('idle')
                 }}
                 className="btn-ghost btn-sm text-surface-400 hover:text-surface-200"
@@ -714,5 +809,6 @@ export default function FileIngestor({
         </div>
       )}
     </div>
+    </>
   )
 }

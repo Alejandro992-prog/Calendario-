@@ -123,6 +123,18 @@ export interface AuditLog {
   created_at: string;
 }
 
+/**
+ * Zona seleccionada por el usuario sobre la previsualización del PDF.
+ * Las coordenadas se expresan como porcentajes (0–100) del tamaño de página
+ * para que sean independientes de la escala de render.
+ */
+export interface PdfZoneConfig {
+  x: number      // % desde el borde izquierdo
+  y: number      // % desde el borde superior
+  width: number  // % del ancho de la página
+  height: number // % del alto de la página
+}
+
 // Parsed item from Excel/PDF/OCR before confirmation
 export interface ParsedItem {
   modelo: string;
